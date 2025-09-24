@@ -119,7 +119,7 @@ struct ContentView: View {
                                 .border(Color.white.opacity(0.8), width: 1)
                                 .overlay(Text("T").font(.caption2).padding(2), alignment: .topLeading)
                         }
-                        if let sampleBuffer = camera.lastSampleBuffer, let pixel = CMSampleBufferGetImageBuffer(sampleBuffer), let centerImg = self.templateMatcher.centerUIImage(from: pixel) {
+                        if let pixel = camera.lastPixelBuffer, let centerImg = self.templateMatcher.centerUIImage(from: pixel) {
                             Image(uiImage: centerImg)
                                 .resizable()
                                 .interpolation(.none)
@@ -225,14 +225,19 @@ extension ContentView {
                         DispatchQueue.main.async { self.debugMessage = "目标识别失败，等待重试..." }
                         return
                     }
-                    // 生成模板：取检测框中心小块
-                    self.templateMatcher.setTemplate(from: pixel, normalizedRegion: crop.rectInNormalizedImage)
-                    DispatchQueue.main.async {
-                        self.templateReady = true
-                        self.debugMessage = "模板已生成：\(crop.detectionType)，开始相似度匹配..."
-                        // 可选：清除旧的跟踪可视化
-                        self.cropRectInView = nil
-                        self.trackedCenter = nil
+                    // 生成模板：取检测框中心小块（带完成回调，避免竞态）
+                    self.templateMatcher.setTemplate(from: pixel, normalizedRegion: crop.rectInNormalizedImage) { ok in
+                        DispatchQueue.main.async {
+                            if ok {
+                                self.templateReady = true
+                                self.debugMessage = "模板已生成：\(crop.detectionType)，开始相似度匹配..."
+                                self.cropRectInView = nil
+                                self.trackedCenter = nil
+                            } else {
+                                self.templateReady = false
+                                self.debugMessage = "模板生成失败，等待重试..."
+                            }
+                        }
                     }
                 }
             } else {

@@ -34,6 +34,9 @@ final class CameraManager: NSObject, ObservableObject {
     // Called on videoOutputQueue
     var onSampleBuffer: ((CMSampleBuffer) -> Void)?
 
+    // Latest pixel buffer for debug previews (not published)
+    private(set) var lastPixelBuffer: CVPixelBuffer? = nil
+
     override init() {
         super.init()
         session.sessionPreset = .high
@@ -162,6 +165,9 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
 
 extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        if let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) {
+            self.lastPixelBuffer = pixel
+        }
         onSampleBuffer?(sampleBuffer)
     }
 }

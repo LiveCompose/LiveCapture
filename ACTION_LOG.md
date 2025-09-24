@@ -169,3 +169,8 @@
     - 调试面板增加相似度与模板状态显示。
   - 影响：在无显式边框跟踪的情况下，也能通过相似度判断是否移动到目标位置；对旋转/亮度变化具备一定鲁棒性。
 
+- 2025-09-24: 模板与中心缩略图调试显示
+  - `TemplateMatcher.swift`：新增 CGImage/UIImage 导出接口与模板缓存，提供 `templateUIImage()` 和 `centerUIImage(from:)` 用于调试显示。
+  - `CameraManager.swift`：暴露 `lastPixelBuffer` 以便 UI 获取最近一帧像素数据。
+  - `ContentView.swift`：在调试面板下方右侧展示两张 64×64 缩略图（T=模板，C=中心），便于肉眼核对模板与实时中心块。
+

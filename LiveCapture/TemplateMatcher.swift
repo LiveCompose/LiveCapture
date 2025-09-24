@@ -34,13 +34,23 @@ final class TemplateMatcher {
         }
     }
 
+    // Convenience wrapper
     func setTemplate(from pixelBuffer: CVPixelBuffer, normalizedRegion: CGRect) {
+        setTemplate(from: pixelBuffer, normalizedRegion: normalizedRegion, completion: nil)
+    }
+
+    // Completion-capable setup; completion invoked on main queue
+    func setTemplate(from pixelBuffer: CVPixelBuffer, normalizedRegion: CGRect, completion: ((Bool) -> Void)?) {
         queue.async {
             let crop = self.centerSquare(in: normalizedRegion, pixelBuffer: pixelBuffer)
             guard let cg = self.extractCGImage(from: pixelBuffer, cropping: crop),
-                  let vec = self.imageToVector(cg) else { return }
+                  let vec = self.imageToVector(cg) else {
+                DispatchQueue.main.async { completion?(false) }
+                return
+            }
             self.lastTemplateCGImage = cg
             self.templateVector = self.normalizeVector(vec)
+            DispatchQueue.main.async { completion?(true) }
         }
     }
 
@@ -113,30 +123,30 @@ final class TemplateMatcher {
     }
 
     private func extractCGImage(from pixelBuffer: CVPixelBuffer, cropping cropRect: CGRect) -> CGImage? {
+        let imgW = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
+        let imgH = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let cropped = ciImage.cropped(to: cropRect)
-        // Scale to targetSize x targetSize
-        let scaleX = CGFloat(targetSize) / cropped.extent.width
-        let scaleY = CGFloat(targetSize) / cropped.extent.height
-        let scale = min(scaleX, scaleY)
-
-        let lanczos = CIFilter.lanczosScaleTransform()
-        lanczos.inputImage = cropped
-        lanczos.scale = Float(scale)
-        lanczos.aspectRatio = 1.0
-        guard let scaled = lanczos.outputImage?.cropped(to: CGRect(x: 0, y: 0, width: CGFloat(targetSize), height: CGFloat(targetSize))) else {
-            return nil
-        }
-
-        // Grayscale by luma
-        let controls = CIFilter.colorControls()
-        controls.inputImage = scaled
-        controls.saturation = 0
-        controls.brightness = 0
-        controls.contrast = 1
-        guard let gray = controls.outputImage else { return nil }
-
-        return context.createCGImage(gray, from: CGRect(x: 0, y: 0, width: targetSize, height: targetSize))
+        // Convert top-left origin pixel rect to Core Image bottom-left origin
+        let ciCrop = CGRect(
+            x: cropRect.origin.x,
+            y: imgH - cropRect.origin.y - cropRect.height,
+            width: cropRect.width,
+            height: cropRect.height
+        )
+        guard let src = context.createCGImage(ciImage, from: ciCrop) else { return nil }
+        // Scale to targetSize x targetSize using CoreGraphics for deterministic sizing
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bytesPerRow = targetSize * 4
+        guard let ctx = CGContext(data: nil,
+                                  width: targetSize,
+                                  height: targetSize,
+                                  bitsPerComponent: 8,
+                                  bytesPerRow: bytesPerRow,
+                                  space: colorSpace,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .none
+        ctx.draw(src, in: CGRect(x: 0, y: 0, width: targetSize, height: targetSize))
+        return ctx.makeImage()
     }
 
     private func imageToVector(_ image: CGImage) -> [Float]? {
