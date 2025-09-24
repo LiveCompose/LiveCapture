@@ -14,7 +14,7 @@ final class TrackingManager {
     // 用于平滑跟踪结果的缓冲区
     private var recentBoxes: [CGRect] = []
     private var recentConfidences: [Float] = []
-    private let smoothingWindowSize = 5
+    private let smoothingWindowSize = 3
     
     // 跟踪质量评估
     private var consecutiveGoodFrames = 0

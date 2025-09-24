@@ -24,6 +24,12 @@ struct ContentView: View {
     @State private var trackedCenter: CGPoint? = nil
     @State private var isAligned: Bool = false
     @State private var showSaveToast = false
+
+    // 模板匹配追踪
+    private let templateMatcher = TemplateMatcher()
+    private let templateThreshold: Float = 0.88
+    @State private var lastSimilarity: Float? = nil
+    @State private var templateReady: Bool = false
     
     // 调试状态变量
     @State private var debugMessage = "等待相机启动..."
@@ -81,10 +87,15 @@ struct ContentView: View {
                                     Text("跟踪: 无")
                                 }
                             }
-                            
-                            Text("传感器: \(motion.debugInfo)")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                            HStack {
+                                if let sim = lastSimilarity {
+                                    Text("相似度: \(String(format: "%.2f", sim)) / \(String(format: "%.2f", templateThreshold))")
+                                } else {
+                                    Text("相似度: --")
+                                }
+                                Spacer()
+                                Text(templateReady ? "模板: 已就绪" : "模板: 未就绪")
+                            }
                         }
                         .font(.caption2)
                         
@@ -95,6 +106,31 @@ struct ContentView: View {
                     .padding(12)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
                     .padding(.horizontal, 16)
+
+                    // 缩略图：模板与中心小方块
+                    #if canImport(UIKit)
+                    HStack(spacing: 8) {
+                        if let img = self.templateMatcher.templateUIImage() {
+                            Image(uiImage: img)
+                                .resizable()
+                                .interpolation(.none)
+                                .antialiased(false)
+                                .frame(width: 64, height: 64)
+                                .border(Color.white.opacity(0.8), width: 1)
+                                .overlay(Text("T").font(.caption2).padding(2), alignment: .topLeading)
+                        }
+                        if let sampleBuffer = camera.lastSampleBuffer, let pixel = CMSampleBufferGetImageBuffer(sampleBuffer), let centerImg = self.templateMatcher.centerUIImage(from: pixel) {
+                            Image(uiImage: centerImg)
+                                .resizable()
+                                .interpolation(.none)
+                                .antialiased(false)
+                                .frame(width: 64, height: 64)
+                                .border(Color.white.opacity(0.8), width: 1)
+                                .overlay(Text("C").font(.caption2).padding(2), alignment: .topLeading)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    #endif
                 } else {
                     Button("显示调试") { showDebugInfo = true }
                         .font(.caption2)
@@ -174,62 +210,79 @@ extension ContentView {
     private func setupCallbacks() {
         camera.onSampleBuffer = { (sample: CMSampleBuffer) in
             guard self.motion.isStable,
-                  let pixel: CVPixelBuffer = CMSampleBufferGetImageBuffer(sample) else { 
+                  let pixel: CVPixelBuffer = CMSampleBufferGetImageBuffer(sample) else {
                 DispatchQueue.main.async {
                     self.debugMessage = "等待设备稳定..."
                 }
-                return 
+                return
             }
 
-            if self.cropRectInView == nil {
-                // Run Adacrop once when stable
-                DispatchQueue.main.async {
-                    self.debugMessage = "设备已稳定，开始识别目标区域..."
-                }
+            if !self.templateReady {
+                // 仅在模板未就绪时运行一次 Adacrop
+                DispatchQueue.main.async { self.debugMessage = "设备已稳定，开始识别目标区域..." }
                 self.adacrop.predictCropBox(pixelBuffer: pixel) { (crop: CropBox?) in
-                    guard let crop else { 
-                        DispatchQueue.main.async {
-                            self.debugMessage = "目标识别失败，等待重试..."
-                        }
-                        return 
+                    guard let crop else {
+                        DispatchQueue.main.async { self.debugMessage = "目标识别失败，等待重试..." }
+                        return
                     }
+                    // 生成模板：取检测框中心小块
+                    self.templateMatcher.setTemplate(from: pixel, normalizedRegion: crop.rectInNormalizedImage)
                     DispatchQueue.main.async {
-                        self.debugMessage = "识别成功：\(crop.detectionType)"
-                        self.startTracking(with: crop, pixelBuffer: pixel)
+                        self.templateReady = true
+                        self.debugMessage = "模板已生成：\(crop.detectionType)，开始相似度匹配..."
+                        // 可选：清除旧的跟踪可视化
+                        self.cropRectInView = nil
+                        self.trackedCenter = nil
                     }
                 }
             } else {
-                // Update tracking every frame
-                self.tracker.track(pixelBuffer: pixel)
+                // 模板已就绪：实时计算中心块相似度
+                if let sim = self.templateMatcher.similarityWithCenter(of: pixel) {
+                    DispatchQueue.main.async {
+                        self.lastSimilarity = sim
+                        let alignedNow = sim >= self.templateThreshold
+                        if alignedNow && !self.isAligned {
+                            self.debugMessage = "对准成功（相似度）！0.2秒后自动拍照..."
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                if self.isAligned == false {
+                                    self.isAligned = true
+                                    self.debugMessage = "正在拍照..."
+                                    self.camera.capturePhoto()
+                                }
+                            }
+                        } else if alignedNow {
+                            self.debugMessage = "保持对准（相似度）: \(String(format: "%.2f", sim))"
+                        } else {
+                            self.debugMessage = "移动中，相似度: \(String(format: "%.2f", sim))"
+                        }
+                        self.isAligned = alignedNow
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.debugMessage = "相似度计算失败"
+                        self.isAligned = false
+                    }
+                }
             }
         }
 
+        // 保留 tracker 回调但在模板模式下不会触发
         self.tracker.onUpdate = { (box: CGRect, confidence: Float) in
             DispatchQueue.main.async {
-                guard let layer = self.findPreviewLayer(),
-                      let rectInView = self.convertNormalizedRect(box, in: layer) else {
+                guard let layer = self.findPreviewLayer(), let rectInView = self.convertNormalizedRect(box, in: layer) else {
                     self.cropRectInView = nil
                     self.trackedCenter = nil
-                    self.isAligned = false
-                    self.debugMessage = "跟踪数据转换失败"
                     return
                 }
                 self.cropRectInView = rectInView
                 self.trackedCenter = CGPoint(x: rectInView.midX, y: rectInView.midY)
-                self.debugMessage = "跟踪目标，置信度: \(String(format: "%.2f", confidence))"
-                self.evaluateAlignment()
             }
         }
-        
-        // 处理跟踪丢失的情况
+
         self.tracker.onTrackingLost = {
             DispatchQueue.main.async {
                 self.cropRectInView = nil
                 self.trackedCenter = nil
-                self.isAligned = false
-                self.debugMessage = "跟踪丢失，清除状态并准备重新识别..."
-                // 重置tracker以便重新开始跟踪
-                self.tracker.reset()
             }
         }
     }
@@ -239,14 +292,21 @@ extension ContentView {
     }
 
     private func convertNormalizedRect(_ rect: CGRect, in layer: AVCaptureVideoPreviewLayer) -> CGRect? {
-        layer.layerRectConverted(fromMetadataOutputRect: rect)
+        // Vision 的归一化坐标以左下为原点，需要先转换为 AVCaptureMetadataOutput 所使用的左上为原点的归一化坐标
+        let metadataRect = CGRect(
+            x: rect.origin.x,
+            y: 1.0 - rect.origin.y - rect.size.height,
+            width: rect.size.width,
+            height: rect.size.height
+        )
+        return layer.layerRectConverted(fromMetadataOutputRect: metadataRect)
     }
 
     private func startTracking(with crop: CropBox, pixelBuffer: CVPixelBuffer) {
-        DispatchQueue.main.async {
-            self.debugMessage = "启动跟踪器 (\(crop.detectionType))..."
-        }
-        self.tracker.startTracking(from: crop.rectInNormalizedImage, pixelBuffer: pixelBuffer)
+        // 旧的基于 Vision 的跟踪入口：改为生成模板
+        self.templateMatcher.setTemplate(from: pixelBuffer, normalizedRegion: crop.rectInNormalizedImage)
+        self.templateReady = true
+        self.debugMessage = "模板已生成：\(crop.detectionType)，开始相似度匹配..."
     }
 
     private func evaluateAlignment() {
