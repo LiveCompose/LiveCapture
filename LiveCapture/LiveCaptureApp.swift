@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+#if os(iOS) || os(tvOS)
 @main
 struct LiveCaptureApp: App {
     var body: some Scene {
@@ -15,3 +16,12 @@ struct LiveCaptureApp: App {
         }
     }
 }
+#else
+struct LiveCaptureApp: App {
+    var body: some Scene {
+        WindowGroup {
+            Text("Unsupported Platform")
+        }
+    }
+}
+#endif

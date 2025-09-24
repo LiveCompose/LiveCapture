@@ -4,10 +4,14 @@
 //
 
 import Foundation
+import Combine
 import AVFoundation
 
 final class PreviewLayerProvider: ObservableObject {
-    weak var layer: AVCaptureVideoPreviewLayer?
+    let objectWillChange: PassthroughSubject<Void, Never> = PassthroughSubject<Void, Never>()
+    weak var layer: AVCaptureVideoPreviewLayer? {
+        willSet { objectWillChange.send() }
+    }
 }
 
 

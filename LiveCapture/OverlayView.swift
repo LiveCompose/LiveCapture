@@ -12,7 +12,7 @@ struct OverlayView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                if let rect = cropRectInView {
+                if let rect: CGRect = cropRectInView {
                     Path { path in
                         path.addRect(rect)
                     }
@@ -23,7 +23,7 @@ struct OverlayView: View {
                     )
                 }
 
-                if let c = trackedCenter {
+                if let c: CGPoint = trackedCenter {
                     Circle()
                         .fill(Color.yellow)
                         .frame(width: 12, height: 12)

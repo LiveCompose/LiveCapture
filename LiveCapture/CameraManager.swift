@@ -6,11 +6,12 @@
 //
 
 import Foundation
+import Combine
 import AVFoundation
 import Photos
-import UIKit
 
 final class CameraManager: NSObject, ObservableObject {
+    let objectWillChange: PassthroughSubject<Void, Never> = PassthroughSubject<Void, Never>()
     enum CameraError: Error {
         case cameraUnavailable
         case cannotAddInput
@@ -23,12 +24,12 @@ final class CameraManager: NSObject, ObservableObject {
     @Published var isSessionRunning: Bool = false
     @Published var lastPhotoSaved: Bool = false
 
-    let session = AVCaptureSession()
-    private let sessionQueue = DispatchQueue(label: "livecapture.camera.session")
-    private let videoOutputQueue = DispatchQueue(label: "livecapture.camera.videoOutput")
+    let session: AVCaptureSession = AVCaptureSession()
+    private let sessionQueue: DispatchQueue = DispatchQueue(label: "livecapture.camera.session")
+    private let videoOutputQueue: DispatchQueue = DispatchQueue(label: "livecapture.camera.videoOutput")
 
-    private let photoOutput = AVCapturePhotoOutput()
-    private let videoOutput = AVCaptureVideoDataOutput()
+    private let photoOutput: AVCapturePhotoOutput = AVCapturePhotoOutput()
+    private let videoOutput: AVCaptureVideoDataOutput = AVCaptureVideoDataOutput()
 
     // Called on videoOutputQueue
     var onSampleBuffer: ((CMSampleBuffer) -> Void)?
@@ -74,10 +75,10 @@ final class CameraManager: NSObject, ObservableObject {
         defer { session.commitConfiguration() }
 
         // Input
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+        guard let device: AVCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
             throw CameraError.cameraUnavailable
         }
-        let input = try AVCaptureDeviceInput(device: device)
+        let input: AVCaptureDeviceInput = try AVCaptureDeviceInput(device: device)
         if session.canAddInput(input) {
             session.addInput(input)
         } else {
@@ -94,8 +95,10 @@ final class CameraManager: NSObject, ObservableObject {
         // Video output for AI/tracking
         if session.canAddOutput(videoOutput) {
             session.addOutput(videoOutput)
-            if let connection = videoOutput.connection(with: .video), connection.isVideoOrientationSupported {
-                connection.videoOrientation = .portrait
+            if let connection: AVCaptureConnection = videoOutput.connection(with: .video) {
+                if connection.isVideoRotationAngleSupported(90) {
+                    connection.videoRotationAngle = 90
+                }
             }
         } else {
             throw CameraError.cannotAddOutput
@@ -119,7 +122,7 @@ final class CameraManager: NSObject, ObservableObject {
     }
 
     func capturePhoto() {
-        let settings = AVCapturePhotoSettings()
+        let settings: AVCapturePhotoSettings = AVCapturePhotoSettings()
         if self.photoOutput.supportedFlashModes.contains(.auto) {
             settings.flashMode = .auto
         }
@@ -133,7 +136,7 @@ final class CameraManager: NSObject, ObservableObject {
                 return
             }
             PHPhotoLibrary.shared().performChanges({
-                let creationRequest = PHAssetCreationRequest.forAsset()
+                let creationRequest: PHAssetCreationRequest = PHAssetCreationRequest.forAsset()
                 creationRequest.addResource(with: .photo, data: data, options: nil)
             }) { success, _ in
                 DispatchQueue.main.async { self.lastPhotoSaved = success }
@@ -144,12 +147,12 @@ final class CameraManager: NSObject, ObservableObject {
 
 extension CameraManager: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        if let error = error {
+        if let error: any Error = error {
             print("Photo processing error: \(error)")
             DispatchQueue.main.async { self.lastPhotoSaved = false }
             return
         }
-        guard let data = photo.fileDataRepresentation() else {
+        guard let data: Data = photo.fileDataRepresentation() else {
             DispatchQueue.main.async { self.lastPhotoSaved = false }
             return
         }
