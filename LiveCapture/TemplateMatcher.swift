@@ -23,7 +23,10 @@ final class TemplateMatcher {
     private var lastTemplateCGImage: CGImage? = nil
 
     // Public config
-    var centerScaleInRegion: CGFloat = 0.25 // side relative to min(region.width, region.height)
+    // 模板方块（来自裁切框中心）的边长比例（相对裁切框 min(width,height)）——较大更稳健
+    var templateScaleInRegion: CGFloat = 0.35
+    // 探测方块（来自画面中心 3:4 区域）的边长比例（相对 3:4 矩形 min(width,height)）——较小更容易匹配
+    var probeScaleInComp: CGFloat = 0.12
 
     var hasTemplate: Bool { queue.sync { templateVector != nil } }
 
@@ -42,7 +45,7 @@ final class TemplateMatcher {
     // Completion-capable setup; completion invoked on main queue
     func setTemplate(from pixelBuffer: CVPixelBuffer, normalizedRegion: CGRect, completion: ((Bool) -> Void)?) {
         queue.async {
-            let crop = self.centerSquare(in: normalizedRegion, pixelBuffer: pixelBuffer)
+            let crop = self.centerSquare(in: normalizedRegion, pixelBuffer: pixelBuffer, scale: self.templateScaleInRegion)
             guard let cg = self.extractCGImage(from: pixelBuffer, cropping: crop),
                   let vec = self.imageToVector(cg) else {
                 DispatchQueue.main.async { completion?(false) }
@@ -95,7 +98,19 @@ final class TemplateMatcher {
 
     // MARK: - Helpers
 
-    private func centerSquare(in normalizedRegion: CGRect, pixelBuffer: CVPixelBuffer) -> CGRect {
+    private func compositionRect3x4InPixels(pixelBuffer: CVPixelBuffer) -> CGRect {
+        let width = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
+        let height = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+        // Fit 3:4 inside the full pixel buffer (portrait composition)
+        // width:height = 3:4 => width = height * 0.75
+        let targetWidth = min(width, height * 0.75)
+        let targetHeight = targetWidth * 4.0 / 3.0
+        let originX = (width - targetWidth) / 2.0
+        let originY = (height - targetHeight) / 2.0
+        return CGRect(x: originX, y: originY, width: targetWidth, height: targetHeight)
+    }
+
+    private func centerSquare(in normalizedRegion: CGRect, pixelBuffer: CVPixelBuffer, scale: CGFloat) -> CGRect {
         let width = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
         let height = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
         // Vision normalized (origin bottom-left) -> pixel coords (origin top-left for our crop)
@@ -105,25 +120,27 @@ final class TemplateMatcher {
         let ph = normalizedRegion.size.height * height
         let rect = CGRect(x: px, y: pyTopLeft, width: pw, height: ph)
 
-        let side = min(rect.width, rect.height) * centerScaleInRegion
-        let cx = rect.midX
-        let cy = rect.midY
+        // Constrain to 3:4 composition rect to match still photo FOV
+        let comp = compositionRect3x4InPixels(pixelBuffer: pixelBuffer)
+        let targetRect = rect.intersection(comp).isNull ? comp : rect.intersection(comp)
+
+        let side = min(targetRect.width, targetRect.height) * max(0.02, min(0.9, scale))
+        let cx = min(max(targetRect.midX, comp.minX), comp.maxX)
+        let cy = min(max(targetRect.midY, comp.minY), comp.maxY)
         var square = CGRect(x: cx - side/2, y: cy - side/2, width: side, height: side)
-        let imgRect = CGRect(x: 0, y: 0, width: width, height: height)
-        square = square.intersection(imgRect)
+        square = square.intersection(comp)
         return square
     }
 
     private func centerSquareInFullFrame(pixelBuffer: CVPixelBuffer) -> CGRect {
-        let width = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
-        let height = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
-        let side = min(width, height) * 0.12 // center square relative to whole frame
-        let square = CGRect(x: (width - side)/2, y: (height - side)/2, width: side, height: side)
+        // Use center inside 3:4 composition rect to match still photo field of view
+        let comp = compositionRect3x4InPixels(pixelBuffer: pixelBuffer)
+        let side = min(comp.width, comp.height) * max(0.02, min(0.9, probeScaleInComp))
+        let square = CGRect(x: comp.midX - side/2, y: comp.midY - side/2, width: side, height: side)
         return square
     }
 
     private func extractCGImage(from pixelBuffer: CVPixelBuffer, cropping cropRect: CGRect) -> CGImage? {
-        let imgW = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
         let imgH = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         // Convert top-left origin pixel rect to Core Image bottom-left origin

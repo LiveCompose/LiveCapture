@@ -39,7 +39,7 @@ final class CameraManager: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        session.sessionPreset = .high
+        session.sessionPreset = .photo
         videoOutput.alwaysDiscardsLateVideoFrames = true
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         videoOutput.setSampleBufferDelegate(self, queue: videoOutputQueue)
@@ -91,6 +91,9 @@ final class CameraManager: NSObject, ObservableObject {
         // Photo output
         if session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
+            if photoOutput.isHighResolutionCaptureEnabled == false {
+                photoOutput.isHighResolutionCaptureEnabled = true
+            }
         } else {
             throw CameraError.cannotAddOutput
         }
@@ -128,6 +131,11 @@ final class CameraManager: NSObject, ObservableObject {
         let settings: AVCapturePhotoSettings = AVCapturePhotoSettings()
         if self.photoOutput.supportedFlashModes.contains(.auto) {
             settings.flashMode = .auto
+        }
+        settings.isHighResolutionPhotoEnabled = true
+        if #available(iOS 16.0, tvOS 16.0, *) {
+            // 将优先级设为设备支持的最大值，避免超范围导致崩溃
+            settings.photoQualityPrioritization = self.photoOutput.maxPhotoQualityPrioritization
         }
         photoOutput.capturePhoto(with: settings, delegate: self)
     }

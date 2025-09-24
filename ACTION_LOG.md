@@ -165,7 +165,7 @@
     - 每帧在相机画面中心裁取同尺寸小块，计算余弦相似度（映射到[0,1]）。
   - 集成 `ContentView.swift`：
     - 首次稳定后运行 Adacrop，生成模板；模板就绪后实时计算中心相似度。
-    - 当相似度 ≥ 0.88 判定“对准”，复用原有自动拍照流程（0.2s 去抖）。
+    - 当相似度 ≥75 判定“对准”，复用原有自动拍照流程（0.2s 去抖）。
     - 调试面板增加相似度与模板状态显示。
   - 影响：在无显式边框跟踪的情况下，也能通过相似度判断是否移动到目标位置；对旋转/亮度变化具备一定鲁棒性。
 
@@ -173,4 +173,21 @@
   - `TemplateMatcher.swift`：新增 CGImage/UIImage 导出接口与模板缓存，提供 `templateUIImage()` 和 `centerUIImage(from:)` 用于调试显示。
   - `CameraManager.swift`：暴露 `lastPixelBuffer` 以便 UI 获取最近一帧像素数据。
   - `ContentView.swift`：在调试面板下方右侧展示两张 64×64 缩略图（T=模板，C=中心），便于肉眼核对模板与实时中心块。
+
+- 2025-09-24: 主界面与相机 UI 重构
+  - 新增 `MainView`：应用启动进入主界面，提供“用户模式/调试模式”选择，分别导航到 `ContentView(mode:)`。
+  - 更新入口：`LiveCaptureApp` 现在默认展示 `MainView`。
+  - 重构 `ContentView`：新增 `mode: AppMode`；
+    - 用户模式：新增底部相机风格控制条（快门/闪电占位/切换摄像头占位），叠加三分法网格 `GridOverlayView`。
+    - 调试模式：保留稳定性、相似度、模板/中心缩略图等调试面板，居中快门保留。
+  - 新增 `GridOverlayView`：显示 3x3 三分法辅助线，可与系统相机风格对齐。
+
+- 2025-09-24: 3:4 预览与 Adacrop 重写
+  - 相机：`CameraManager` 切换为 `.photo` 预设，启用高分辨率拍照；保持预览 `.resizeAspectFill`。
+  - 预览遮罩：新增 `AspectMaskView`，叠加 3:4 构图遮罩（外部区域半透明暗化并描边），`ContentView` 中默认启用。
+  - 网格：保留 `GridOverlayView` 三分法辅助线，与 3:4 遮罩叠加使用。
+  - Adacrop：重写区域选择逻辑：
+    - 优先人脸：检测最大人脸并扩展，外扩后适配 3:4。
+    - 否则显著性：使用 `VNGenerateAttentionBasedSaliencyImageRequest` 获取注意力显著性，聚合显著区域；基于覆盖率与三分法贴合评分，选取最佳 3:4 构图框。
+    - 失败回退：中心 3:4 框。
 

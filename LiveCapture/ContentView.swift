@@ -15,6 +15,7 @@ import Vision
 #if os(iOS) || os(tvOS)
 
 struct ContentView: View {
+    var mode: AppMode = .user
     @StateObject private var camera = CameraManager()
     @StateObject private var motion = MotionStabilityMonitor()
     @StateObject private var previewProvider = PreviewLayerProvider()
@@ -27,7 +28,7 @@ struct ContentView: View {
 
     // 模板匹配追踪
     private let templateMatcher = TemplateMatcher()
-    private let templateThreshold: Float = 0.88
+    private let templateThreshold: Float = 0.84
     @State private var lastSimilarity: Float? = nil
     @State private var templateReady: Bool = false
     
@@ -39,31 +40,67 @@ struct ContentView: View {
         ZStack {
             CameraPreviewView(session: camera.session, provider: previewProvider)
                 .ignoresSafeArea()
+            if mode == .user {
+                GridOverlayView().ignoresSafeArea()
+            }
+            AspectMaskView().ignoresSafeArea()
 
             // Center crosshair
             CrosshairView().tint(isAligned ? .green : .white)
 
             OverlayView(cropRectInView: cropRectInView, trackedCenter: trackedCenter)
 
-            VStack {
-                Spacer()
-                HStack {
+            // 用户模式底部控制条（参考系统相机）
+            if mode == .user {
+                VStack {
                     Spacer()
-                    Button(action: { camera.capturePhoto() }) {
-                        Circle()
-                            .strokeBorder(Color.white, lineWidth: 6)
-                            .frame(width: 72, height: 72)
-                            .overlay(Circle().fill(Color.white.opacity(0.15)))
+                    HStack(spacing: 24) {
+                        Button(action: {}) {
+                            Image(systemName: "bolt.circle")
+                                .font(.system(size: 22, weight: .regular))
+                                .foregroundStyle(.white)
+                                .opacity(0.9)
+                        }
+                        Spacer()
+                        Button(action: { camera.capturePhoto() }) {
+                            Circle()
+                                .strokeBorder(Color.white, lineWidth: 6)
+                                .frame(width: 78, height: 78)
+                                .overlay(Circle().fill(Color.white.opacity(0.15)))
+                        }
+                        Spacer()
+                        Button(action: {}) {
+                            Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                .font(.system(size: 22, weight: .regular))
+                                .foregroundStyle(.white)
+                                .opacity(0.9)
+                        }
                     }
-                    .padding(.bottom, 32)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 26)
+                }
+            } else {
+                // 兼容原来的居中快门用于调试
+                VStack {
                     Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: { camera.capturePhoto() }) {
+                            Circle()
+                                .strokeBorder(Color.white, lineWidth: 6)
+                                .frame(width: 72, height: 72)
+                                .overlay(Circle().fill(Color.white.opacity(0.15)))
+                        }
+                        .padding(.bottom, 32)
+                        Spacer()
+                    }
                 }
             }
         }
         .overlay(alignment: .top) {
             VStack(spacing: 8) {
                 // 调试信息显示
-                if showDebugInfo {
+                if showDebugInfo && mode == .debug {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text("调试信息")
@@ -131,14 +168,14 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 16)
                     #endif
-                } else {
+                } else if mode == .debug {
                     Button("显示调试") { showDebugInfo = true }
                         .font(.caption2)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .background(.ultraThinMaterial, in: Capsule())
                 }
-                
+
                 // 保存成功提示
                 if showSaveToast {
                     Text("已保存")

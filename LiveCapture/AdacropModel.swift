@@ -22,161 +22,177 @@ final class AdacropModel {
 
     func predictCropBox(pixelBuffer: CVPixelBuffer, completion: @escaping (CropBox?) -> Void) {
         handlerQueue.async {
-            // 寻找最佳跟踪区域，优先选择特征丰富的区域
-            let (bestRect, detectionType) = self.findBestTrackingRegionWithType(in: pixelBuffer)
-            completion(CropBox(rectInNormalizedImage: bestRect, detectionType: detectionType))
-        }
-    }
-    
-    private func findBestTrackingRegionWithType(in pixelBuffer: CVPixelBuffer) -> (CGRect, String) {
-        // 优先寻找特征丰富的静态区域，避免跟踪可能移动的对象（如人脸）
-        
-        // 首先尝试使用角点和轮廓检测找到最佳区域
-        if let cornerBasedRegion = findCornerRichRegion(in: pixelBuffer) {
-            return (cornerBasedRegion, "轮廓特征")
-        }
-        
-        // 如果角点检测失败，尝试检测静态矩形物体
-        if let rectangleRegion = findStaticRectangularRegion(in: pixelBuffer) {
-            return (rectangleRegion, "矩形物体")
-        }
-        
-        // 最后的备选：检测人脸但作为最后选择（因为人可能移动）
-        if let faceRegion = findFaceRegionAsLastResort(in: pixelBuffer) {
-            return (faceRegion, "人脸区域")
-        }
-        
-        // 如果所有检测都失败，使用中心加权区域
-        return (findCenterWeightedRegion(), "默认中心")
-    }
-    
-    // 新增：基于角点检测的特征区域选择
-    private func findCornerRichRegion(in pixelBuffer: CVPixelBuffer) -> CGRect? {
-        // 使用轮廓检测来找到特征丰富的区域
-        let request = VNDetectContoursRequest()
-        request.maximumImageDimension = 512 // 限制处理尺寸以提高性能
-        
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)
-        
-        do {
-            try handler.perform([request])
-            
-            if let contoursObservation = request.results?.first {
-                let contours = contoursObservation.topLevelContours
-                
-                // 寻找最复杂的轮廓（点数最多的）
-                let complexContour = contours.max { contour1, contour2 in
-                    contour1.normalizedPoints.count < contour2.normalizedPoints.count
-                }
-                
-                if let contour = complexContour, contour.normalizedPoints.count > 20 {
-                    // 基于轮廓创建边界框
-                    let points = contour.normalizedPoints
-                    let xs = points.map { $0.x }
-                    let ys = points.map { $0.y }
-                    
-                    guard let minX = xs.min(), let maxX = xs.max(),
-                          let minY = ys.min(), let maxY = ys.max() else {
-                        return nil
-                    }
-                    
-                    let width = maxX - minX
-                    let height = maxY - minY
-                    
-                    // 确保区域大小合适且不在边缘
-                    if width > 0.1 && width < 0.7 && height > 0.1 && height < 0.7 &&
-                       minX > 0.1 && maxX < 0.9 && minY > 0.1 && maxY < 0.9 {
-                        // CGRect的初始化参数需要是CGFloat类型
-                        return CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(width), height: CGFloat(height))
-                    }
-                }
+            if let faceRect = self.findLargestFaceRect(in: pixelBuffer) {
+                let rect3x4 = self.expandToAspect3x4(covering: faceRect)
+                completion(CropBox(rectInNormalizedImage: rect3x4, detectionType: "人脸优先(3:4)"))
+                return
             }
-        } catch {
-            // 轮廓检测失败，继续尝试其他方法
-        }
-        
-        return nil
-    }
-    
-    // 新增：检测静态矩形区域（可能是桌子、墙壁、书本等）
-    private func findStaticRectangularRegion(in pixelBuffer: CVPixelBuffer) -> CGRect? {
-        let request = VNDetectRectanglesRequest()
-        request.minimumAspectRatio = 0.5  // 更保守的长宽比
-        request.maximumAspectRatio = 2.0
-        request.minimumSize = 0.15        // 更大的最小尺寸确保是实际物体
-        request.maximumObservations = 5
-        
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)
-        
-        do {
-            try handler.perform([request])
-            
-            if let rectangles = request.results, !rectangles.isEmpty {
-                // 优先选择中心区域的矩形（更可能是静态的）
-                let centerWeightedRect = rectangles.max { rect1, rect2 in
-                    let center = CGPoint(x: 0.5, y: 0.5)
-                    let dist1 = hypot(rect1.boundingBox.midX - center.x, rect1.boundingBox.midY - center.y)
-                    let dist2 = hypot(rect2.boundingBox.midX - center.x, rect2.boundingBox.midY - center.y)
-                    return dist1 > dist2  // 距离中心更近的优先
-                }
-                
-                return centerWeightedRect?.boundingBox
+            if let saliency = self.generateAttentionSaliency(in: pixelBuffer) {
+                let rect3x4 = self.bestRectFromSaliency3x4(saliency)
+                completion(CropBox(rectInNormalizedImage: rect3x4, detectionType: "显著性(3:4)"))
+                return
             }
-        } catch {
-            // 矩形检测失败
+            // 回退：居中 3:4 框
+            let fallback = self.centerRect3x4()
+            completion(CropBox(rectInNormalizedImage: fallback, detectionType: "默认中心(3:4)"))
         }
-        
-        return nil
     }
     
-    // 新增：人脸检测作为最后备选（因为人可能移动）
-    private func findFaceRegionAsLastResort(in pixelBuffer: CVPixelBuffer) -> CGRect? {
+    // MARK: - Face first
+    private func findLargestFaceRect(in pixelBuffer: CVPixelBuffer) -> CGRect? {
         let request = VNDetectFaceRectanglesRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)
-        
         do {
             try handler.perform([request])
-            
-            if let faceObservation = request.results?.first {
-                let faceRect = faceObservation.boundingBox
-                // 适度扩大人脸区域
-                let expandedRect = CGRect(
-                    x: max(0, faceRect.origin.x - faceRect.width * 0.05),
-                    y: max(0, faceRect.origin.y - faceRect.height * 0.05),
-                    width: min(1.0 - faceRect.origin.x, faceRect.width * 1.1),
-                    height: min(1.0 - faceRect.origin.y, faceRect.height * 1.1)
-                )
-                return expandedRect
+            if let faces = request.results, !faces.isEmpty {
+                let best = faces.max { a, b in a.boundingBox.size.width * a.boundingBox.size.height < b.boundingBox.size.width * b.boundingBox.size.height }
+                // 适度扩展，保持在[0,1]
+                if let bb = best?.boundingBox {
+                    let margin: CGFloat = 0.08
+                    let expanded = CGRect(
+                        x: max(0, bb.origin.x - bb.size.width * margin),
+                        y: max(0, bb.origin.y - bb.size.height * margin),
+                        width: min(1 - bb.origin.x, bb.size.width * (1 + 2*margin)),
+                        height: min(1 - bb.origin.y, bb.size.height * (1 + 2*margin))
+                    )
+                    return expanded
+                }
             }
         } catch {
-            // 人脸检测失败
+            return nil
         }
-        
         return nil
     }
-    
-    
-    private func findCenterWeightedRegion() -> CGRect {
-        // 在图像中心区域选择一个适合跟踪的矩形
-        // 优先选择可能包含静态物体的区域（避开顶部天空、底部地面）
-        
-        // 定义优先级排序的候选区域
-        let candidateRegions = [
-            // 中心偏上区域 - 通常包含桌面、书本、墙面等静态物体
-            CGRect(x: 0.3, y: 0.4, width: 0.4, height: 0.35),
-            // 中心偏下区域 - 可能是桌面或其他平面
-            CGRect(x: 0.25, y: 0.6, width: 0.5, height: 0.25),
-            // 中心区域 - 通用备选
-            CGRect(x: 0.35, y: 0.45, width: 0.3, height: 0.3),
-            // 左中区域 - 可能有墙面或家具
-            CGRect(x: 0.15, y: 0.4, width: 0.35, height: 0.35),
-            // 右中区域 - 可能有墙面或家具  
-            CGRect(x: 0.5, y: 0.4, width: 0.35, height: 0.35)
-        ]
-        
-        // 选择第一个候选区域作为最佳选择
-        // 这个区域最可能包含静态的、特征丰富的背景物体
-        return candidateRegions[0]
+
+    // MARK: - Saliency
+    private func generateAttentionSaliency(in pixelBuffer: CVPixelBuffer) -> VNSaliencyImageObservation? {
+        let request = VNGenerateAttentionBasedSaliencyImageRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)
+        do {
+            try handler.perform([request])
+            return request.results?.first as? VNSaliencyImageObservation
+        } catch {
+            return nil
+        }
+    }
+
+    private func bestRectFromSaliency3x4(_ saliency: VNSaliencyImageObservation) -> CGRect {
+        // 聚合显著性区域
+        let salientRects: [CGRect]
+        if let objects = saliency.salientObjects, !objects.isEmpty {
+            salientRects = objects.map { $0.boundingBox }
+        } else {
+            salientRects = [CGRect(x: 0, y: 0, width: 1, height: 1)]
+        }
+        let unionRect = salientRects.reduce(CGRect.null) { $0.union($1) }.standardized
+        let base = expandToAspect3x4(covering: unionRect)
+        // 生成候选：围绕规则三分交点微移
+        let thirdsXs: [CGFloat] = [1/3, 2/3]
+        let thirdsYs: [CGFloat] = [1/3, 2/3]
+        var candidates: [CGRect] = [base]
+        let baseSideMove: CGFloat = 0.05
+        for tx in thirdsXs { for ty in thirdsYs {
+            let c = CGPoint(x: tx, y: ty)
+            let moved = moveRect(base, centerToward: c, maxShift: baseSideMove)
+            candidates.append(moved)
+        }}
+        // 多尺度轻微变化
+        for scale in [0.9, 1.0, 1.1] as [CGFloat] {
+            candidates.append(scaleRect(base, scale: scale))
+        }
+        // 评分：0.7 覆盖显著性 + 0.3 三分贴合
+        func score(_ r: CGRect) -> CGFloat {
+            let cover = coverage(of: r, over: unionRect)
+            let thirdsScore = thirdsFit(of: r)
+            return 0.7 * cover + 0.3 * thirdsScore
+        }
+        let best = candidates.max { score($0) < score($1) } ?? base
+        return best
+    }
+
+    // MARK: - Geometry helpers (normalized [0,1], origin bottom-left)
+    private func expandToAspect3x4(covering rect: CGRect) -> CGRect {
+        let aspectW: CGFloat = 3
+        let aspectH: CGFloat = 4
+        let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let cx = rect.midX
+        let cy = rect.midY
+        var width = rect.width
+        var height = rect.height
+        let currentAspect = width / height
+        if currentAspect > aspectW / aspectH {
+            // too wide, increase height
+            height = width * aspectH / aspectW
+        } else {
+            // too tall, increase width
+            width = height * aspectW / aspectH
+        }
+        var out = CGRect(x: cx - width/2, y: cy - height/2, width: width, height: height)
+        // 若溢出，整体平移裁剪；若仍溢出，按比例缩小以适配
+        out = clampToUnit(out, inside: unit)
+        if !unit.contains(out) {
+            let scale = min(unit.width / out.width, unit.height / out.height)
+            let newSize = CGSize(width: out.width * scale, height: out.height * scale)
+            out = CGRect(x: cx - newSize.width/2, y: cy - newSize.height/2, width: newSize.width, height: newSize.height)
+            out = clampToUnit(out, inside: unit)
+        }
+        return out
+    }
+
+    private func clampToUnit(_ r: CGRect, inside unit: CGRect) -> CGRect {
+        var out = r
+        if out.minX < unit.minX { out.origin.x = unit.minX }
+        if out.minY < unit.minY { out.origin.y = unit.minY }
+        if out.maxX > unit.maxX { out.origin.x = unit.maxX - out.width }
+        if out.maxY > unit.maxY { out.origin.y = unit.maxY - out.height }
+        return out
+    }
+
+    private func moveRect(_ r: CGRect, centerToward target: CGPoint, maxShift: CGFloat) -> CGRect {
+        let cx = r.midX
+        let cy = r.midY
+        let dx = (target.x - cx)
+        let dy = (target.y - cy)
+        let len = max(1e-6, sqrt(dx*dx + dy*dy))
+        let ux = dx / len
+        let uy = dy / len
+        let shift = min(maxShift, len)
+        var moved = r.offsetBy(dx: ux * shift, dy: uy * shift)
+        moved = clampToUnit(moved, inside: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return moved
+    }
+
+    private func scaleRect(_ r: CGRect, scale: CGFloat) -> CGRect {
+        let cx = r.midX
+        let cy = r.midY
+        let w = r.width * scale
+        let h = r.height * scale
+        var out = CGRect(x: cx - w/2, y: cy - h/2, width: w, height: h)
+        // 保持 3:4，不裁断；若超界则回缩
+        out = clampToUnit(out, inside: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return out
+    }
+
+    private func coverage(of a: CGRect, over b: CGRect) -> CGFloat {
+        let inter = a.intersection(b)
+        if inter.isNull || inter.isEmpty { return 0 }
+        return inter.width * inter.height / max(1e-6, b.width * b.height)
+    }
+
+    private func thirdsFit(of r: CGRect) -> CGFloat {
+        let center = CGPoint(x: r.midX, y: r.midY)
+        let points = [CGPoint(x: 1/3, y: 1/3), CGPoint(x: 2/3, y: 1/3), CGPoint(x: 1/3, y: 2/3), CGPoint(x: 2/3, y: 2/3)]
+        let dists = points.map { hypot(center.x - $0.x, center.y - $0.y) }
+        let minDist = dists.min() ?? 1
+        // 归一化：0 距离 -> 1 分数，最大考虑距离 ~0.5
+        let score = max(0, 1 - minDist / 0.5)
+        return score
+    }
+
+    private func centerRect3x4() -> CGRect {
+        let w: CGFloat = 0.6
+        let h: CGFloat = w * 4.0 / 3.0
+        return CGRect(x: 0.5 - w/2, y: 0.5 - h/2, width: w, height: h)
     }
 }
 
