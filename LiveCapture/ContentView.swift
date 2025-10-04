@@ -71,9 +71,21 @@ struct ContentView: View {
                 Color.black
                     .ignoresSafeArea()
 
+                // 调整预览位置，补偿顶部安全区域与额外的 24pt 顶部填充，避免预览整体向下
+                let topInset: CGFloat = {
+                    var inset: CGFloat = 0
+                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let window = scene.windows.first {
+                        inset = window.safeAreaInsets.top
+                    }
+                    return inset
+                }()
+                let extraTopPadding: CGFloat = 24
+                let topAdjustment = topInset + extraTopPadding
+
                 CameraPreviewView(session: camera.session)
                     .frame(width: compositionRect.width, height: compositionRect.height)
-                    .position(x: compositionRect.midX, y: compositionRect.midY)
+                    .position(x: compositionRect.midX, y: compositionRect.midY - topAdjustment)
                     .clipped()
 
                 overlayLayer(for: compositionRect,
@@ -249,10 +261,22 @@ extension ContentView {
     private func overlayLayer(for compositionRect: CGRect, canvasRect: CGRect) -> some View {
         let focusColor: Color = isAligned ? .green : .white
 
+        // 获取顶部安全区域与外部额外 padding 的合并偏移（补偿 .padding(.top, 24)）
+        let topInset: CGFloat = {
+            var inset: CGFloat = 0
+            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = scene.windows.first {
+                inset = window.safeAreaInsets.top
+            }
+            return inset
+        }()
+        let extraTopPadding: CGFloat = 24
+        let topAdjustment = topInset + extraTopPadding
+
         // 将传入的 compositionRect 转换为相对于 canvasRect 的本地坐标系，
-        // 以避免父视图的 padding / safeArea 导致的坐标偏移不一致。
+        // 并补偿上方额外偏移，避免 overlay 向下错位。
         let localComposition = CGRect(x: compositionRect.minX - canvasRect.minX,
-                                      y: compositionRect.minY - canvasRect.minY,
+                                      y: compositionRect.minY - canvasRect.minY - topAdjustment,
                                       width: compositionRect.width,
                                       height: compositionRect.height)
 
@@ -261,11 +285,8 @@ extension ContentView {
                 var mask = Path()
                 mask.addRect(CGRect(origin: .zero, size: canvasRect.size))
                 mask.addRect(localComposition)
-                ctx.fill(mask,
-                         with: .color(Color.black.opacity(0.35)),
-                         style: FillStyle(eoFill: true))
                 ctx.stroke(Path(localComposition),
-                           with: .color(Color.white.opacity(0.45)),
+                           with: .color(Color.white.opacity(0.95)),
                            lineWidth: 1)
             }
 
@@ -297,7 +318,7 @@ extension ContentView {
             if let rectGlobal = cropRectInView?.intersection(compositionRect),
                !rectGlobal.isNull, !rectGlobal.isEmpty {
                 let rect = CGRect(x: rectGlobal.minX - canvasRect.minX,
-                                  y: rectGlobal.minY - canvasRect.minY,
+                                  y: rectGlobal.minY - canvasRect.minY - topAdjustment,
                                   width: rectGlobal.width,
                                   height: rectGlobal.height)
                 let rounded = Path(roundedRect: rect, cornerRadius: 3)
@@ -310,7 +331,7 @@ extension ContentView {
             // 追踪的空心圆（将 boxCenterInView 从全局坐标转换为本地坐标并限制在 localComposition）
             if let pointGlobal = boxCenterInView {
                 let pointLocal = CGPoint(x: pointGlobal.x - canvasRect.minX,
-                                         y: pointGlobal.y - canvasRect.minY)
+                                         y: pointGlobal.y - canvasRect.minY - topAdjustment)
                 let clamped = clamp(point: pointLocal, to: localComposition)
                 Circle()
                     .fill(Color.white)
