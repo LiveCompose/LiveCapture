@@ -268,6 +268,7 @@ extension ContentView {
                     self.boxCenterInView = nil
                     self.templateReady = false
                     self.motion.resetReferenceAttitude() // 重置参考姿态，避免历史偏移污染下一次检测
+                    self.adacrop.resetSmoothing()
                     self.detectionInProgress = false
                 }
                 return
@@ -451,6 +452,7 @@ extension ContentView {
         boxCenterInView = nil
         lastCroppedPixelBuffer = nil
         motion.resetReferenceAttitude() // 恢复陀螺仪偏移参考
+        adacrop.resetSmoothing()
         detectionInProgress = false
         debugMessage = "已重置检测，等待稳定..."
     }

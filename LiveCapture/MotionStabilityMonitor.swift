@@ -41,6 +41,7 @@ final class MotionStabilityMonitor: ObservableObject {
     private var referencePitch: Double?
     private var referenceRoll: Double?
     private let maxAngle: Double = .pi / 6 // 控制映射到界面的最大角度（约 30°）
+    private var offsetSmoother = UniformPointSmoother(response: 0.25)
 
     func start() {
         guard motion.isAccelerometerAvailable || motion.isGyroAvailable || motion.isDeviceMotionAvailable else { return }
@@ -90,6 +91,7 @@ final class MotionStabilityMonitor: ObservableObject {
             self.gyroSamples.removeAll()
             self.referencePitch = nil
             self.referenceRoll = nil
+            self.offsetSmoother.reset()
         }
         DispatchQueue.main.async { 
             self.isStable = false
@@ -103,6 +105,7 @@ final class MotionStabilityMonitor: ObservableObject {
         dataQueue.async {
             self.referencePitch = self.lastPitch
             self.referenceRoll = self.lastRoll
+            self.offsetSmoother.reset(to: .zero)
             DispatchQueue.main.async {
                 self.screenOffsetNormalized = .zero
             }
@@ -114,6 +117,7 @@ final class MotionStabilityMonitor: ObservableObject {
         dataQueue.async {
             self.referencePitch = nil
             self.referenceRoll = nil
+            self.offsetSmoother.reset(to: .zero)
             DispatchQueue.main.async {
                 self.screenOffsetNormalized = .zero
             }
@@ -136,8 +140,10 @@ final class MotionStabilityMonitor: ObservableObject {
         let offset = CGPoint(x: deltaRoll / maxAngle,
                              y: deltaPitch / maxAngle)
 
+        let smoothed = offsetSmoother.filter(offset)
+
         DispatchQueue.main.async {
-            self.screenOffsetNormalized = offset
+            self.screenOffsetNormalized = smoothed
         }
     }
 

@@ -18,11 +18,13 @@ struct CameraPreviewView: UIViewRepresentable {
         let view = PreviewUIView()
         view.videoPreviewLayer.session = session
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
+        view.videoPreviewLayer.connection?.applyBestVideoStabilizationMode()
         return view
     }
 
     func updateUIView(_ uiView: PreviewUIView, context: Context) {
         uiView.videoPreviewLayer.session = session
+        uiView.videoPreviewLayer.connection?.applyBestVideoStabilizationMode()
     }
 }
 

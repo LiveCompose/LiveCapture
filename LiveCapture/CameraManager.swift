@@ -108,6 +108,7 @@ final class CameraManager: NSObject, ObservableObject {
                 if connection.isVideoRotationAngleSupported(90) {
                     connection.videoRotationAngle = 90
                 }
+                connection.applyBestVideoStabilizationMode()
             }
         } else {
             throw CameraError.cannotAddOutput
@@ -136,6 +137,9 @@ final class CameraManager: NSObject, ObservableObject {
             settings.flashMode = .auto
         }
         settings.isHighResolutionPhotoEnabled = true
+        if photoOutput.isStillImageStabilizationSupported {
+            settings.isAutoStillImageStabilizationEnabled = true
+        }
         if #available(iOS 16.0, tvOS 16.0, *) {
             // 将优先级设为设备支持的最大值，避免超范围导致崩溃
             settings.photoQualityPrioritization = self.photoOutput.maxPhotoQualityPrioritization

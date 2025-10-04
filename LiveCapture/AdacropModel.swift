@@ -16,9 +16,18 @@ struct CropBox {
 
 final class AdacropModel {
     private let handlerQueue = DispatchQueue(label: "livecapture.adacrop.queue")
+    private var rectSmoother = UniformRectSmoother(response: 0.25)
+    private var lastRawRect: CGRect? = nil
 
     init() {
         // 简化初始化，不再需要模型文件
+    }
+
+    func resetSmoothing() {
+        handlerQueue.async {
+            self.rectSmoother.reset()
+            self.lastRawRect = nil
+        }
     }
 
     func predictCropBox(pixelBuffer: CVPixelBuffer,
@@ -26,94 +35,236 @@ final class AdacropModel {
                         completion: @escaping (CropBox?) -> Void) {
         // orientation 用于保证 VNRequest 的坐标系与 UI 显示保持一致
         handlerQueue.async {
-            if let faceRect = self.findLargestFaceRect(in: pixelBuffer, orientation: orientation) {
-                let rect3x4 = self.expandToAspect3x4(covering: faceRect)
-                completion(CropBox(rectInNormalizedImage: rect3x4, detectionType: "人脸优先(3:4)"))
+            let context = self.makeVisionContext(pixelBuffer: pixelBuffer, orientation: orientation)
+            if let best = self.selectBestCandidate(in: context) {
+                self.lastRawRect = best.rect
+                let smoothed = self.rectSmoother.filter(best.rect)
+                let detail = String(format: "美学%.2f-%@", Double(best.score), best.reason)
+                completion(CropBox(rectInNormalizedImage: smoothed, detectionType: detail))
                 return
             }
-            if let saliency = self.generateAttentionSaliency(in: pixelBuffer, orientation: orientation) {
-                let rect3x4 = self.bestRectFromSaliency3x4(saliency)
-                completion(CropBox(rectInNormalizedImage: rect3x4, detectionType: "显著性(3:4)"))
-                return
-            }
-            // 回退：居中 3:4 框
-            let fallback = self.centerRect3x4()
+            let fallback = self.rectSmoother.filter(self.centerRect3x4())
             completion(CropBox(rectInNormalizedImage: fallback, detectionType: "默认中心(3:4)"))
         }
     }
     
-    // MARK: - Face first
-    private func findLargestFaceRect(in pixelBuffer: CVPixelBuffer,
-                                     orientation: CGImagePropertyOrientation) -> CGRect? {
-        let request = VNDetectFaceRectanglesRequest()
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation) // 保持与外部裁剪后的图像方向一致
+    private struct WeightedRect {
+        let rect: CGRect
+        let weight: CGFloat
+    }
+
+    private struct VisionContext {
+        let faces: [WeightedRect]
+        let humans: [WeightedRect]
+        let saliencyRects: [WeightedRect]
+        let saliencyObservation: VNSaliencyImageObservation?
+
+        var hasDetections: Bool {
+            !faces.isEmpty || !humans.isEmpty || !saliencyRects.isEmpty
+        }
+    }
+
+    private struct Candidate {
+        let rect: CGRect
+        let reason: String
+    }
+
+    private struct EvaluatedCandidate {
+        let rect: CGRect
+        let reason: String
+        let score: CGFloat
+    }
+
+    private func makeVisionContext(pixelBuffer: CVPixelBuffer,
+                                   orientation: CGImagePropertyOrientation) -> VisionContext {
+        let faceRequest = VNDetectFaceRectanglesRequest()
+        let humanRequest = VNDetectHumanRectanglesRequest()
+        let saliencyRequest = VNGenerateAttentionBasedSaliencyImageRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation)
         do {
-            try handler.perform([request])
-            if let faces = request.results, !faces.isEmpty {
-                let best = faces.max { a, b in a.boundingBox.size.width * a.boundingBox.size.height < b.boundingBox.size.width * b.boundingBox.size.height }
-                // 适度扩展，保持在[0,1]
-                if let bb = best?.boundingBox {
-                    let margin: CGFloat = 0.08
-                    let expanded = CGRect(
-                        x: max(0, bb.origin.x - bb.size.width * margin),
-                        y: max(0, bb.origin.y - bb.size.height * margin),
-                        width: min(1 - bb.origin.x, bb.size.width * (1 + 2*margin)),
-                        height: min(1 - bb.origin.y, bb.size.height * (1 + 2*margin))
-                    )
-                    return expanded
+            try handler.perform([faceRequest, humanRequest, saliencyRequest])
+        } catch {
+            return VisionContext(faces: [], humans: [], saliencyRects: [], saliencyObservation: nil)
+        }
+        let faces = (faceRequest.results as? [VNFaceObservation]) ?? []
+        let humans = (humanRequest.results as? [VNHumanObservation]) ?? []
+        let saliencyObservation = saliencyRequest.results?.first as? VNSaliencyImageObservation
+        let faceRects = faces.map { WeightedRect(rect: $0.boundingBox.standardized, weight: CGFloat($0.confidence)) }
+        let humanRects = humans.map { WeightedRect(rect: $0.boundingBox.standardized, weight: CGFloat($0.confidence)) }
+        let salientRects = (saliencyObservation?.salientObjects ?? []).map { WeightedRect(rect: $0.boundingBox.standardized, weight: CGFloat($0.confidence)) }
+        return VisionContext(faces: faceRects,
+                             humans: humanRects,
+                             saliencyRects: salientRects,
+                             saliencyObservation: saliencyObservation)
+    }
+
+    private func selectBestCandidate(in context: VisionContext) -> EvaluatedCandidate? {
+        let candidates = generateCandidates(for: context)
+        guard !candidates.isEmpty else { return nil }
+        var best: EvaluatedCandidate? = nil
+        for candidate in candidates {
+            let rect = candidate.rect
+            let subject = subjectScore(for: rect, context: context)
+            let saliency = saliencyScore(for: rect, context: context)
+            let thirds = thirdsFit(of: rect)
+            let breathing = breathingScore(of: rect)
+            let continuity = continuityScore(for: rect)
+            let score = 0.45 * subject + 0.3 * saliency + 0.15 * thirds + 0.05 * breathing + 0.05 * continuity
+            if let current = best {
+                if score > current.score {
+                    best = EvaluatedCandidate(rect: rect, reason: candidate.reason, score: score)
                 }
+            } else {
+                best = EvaluatedCandidate(rect: rect, reason: candidate.reason, score: score)
             }
-        } catch {
-            return nil
         }
-        return nil
-    }
-
-    // MARK: - Saliency
-    private func generateAttentionSaliency(in pixelBuffer: CVPixelBuffer,
-                                           orientation: CGImagePropertyOrientation) -> VNSaliencyImageObservation? {
-        let request = VNGenerateAttentionBasedSaliencyImageRequest()
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation) // 显著性检测同样需要正确的方向信息
-        do {
-            try handler.perform([request])
-            return request.results?.first as? VNSaliencyImageObservation
-        } catch {
-            return nil
-        }
-    }
-
-    private func bestRectFromSaliency3x4(_ saliency: VNSaliencyImageObservation) -> CGRect {
-        // 聚合显著性区域
-        let salientRects: [CGRect]
-        if let objects = saliency.salientObjects, !objects.isEmpty {
-            salientRects = objects.map { $0.boundingBox }
-        } else {
-            salientRects = [CGRect(x: 0, y: 0, width: 1, height: 1)]
-        }
-        let unionRect = salientRects.reduce(CGRect.null) { $0.union($1) }.standardized
-        let base = expandToAspect3x4(covering: unionRect)
-        // 生成候选：围绕规则三分交点微移
-        let thirdsXs: [CGFloat] = [1/3, 2/3]
-        let thirdsYs: [CGFloat] = [1/3, 2/3]
-        var candidates: [CGRect] = [base]
-        let baseSideMove: CGFloat = 0.05
-        for tx in thirdsXs { for ty in thirdsYs {
-            let c = CGPoint(x: tx, y: ty)
-            let moved = moveRect(base, centerToward: c, maxShift: baseSideMove)
-            candidates.append(moved)
-        }}
-        // 多尺度轻微变化
-        for scale in [0.9, 1.0, 1.1] as [CGFloat] {
-            candidates.append(scaleRect(base, scale: scale))
-        }
-        // 评分：0.7 覆盖显著性 + 0.3 三分贴合
-        func score(_ r: CGRect) -> CGFloat {
-            let cover = coverage(of: r, over: unionRect)
-            let thirdsScore = thirdsFit(of: r)
-            return 0.7 * cover + 0.3 * thirdsScore
-        }
-        let best = candidates.max { score($0) < score($1) } ?? base
         return best
+    }
+
+    private func generateCandidates(for context: VisionContext) -> [Candidate] {
+        var seeds: [(CGRect, String)] = []
+
+        for (index, face) in context.faces.enumerated() {
+            let expanded = expandNormalized(face.rect, margin: 0.18)
+            seeds.append((expanded, "人脸#\(index + 1)"))
+        }
+        if let facesUnion = unionRect(context.faces.map { $0.rect }) {
+            seeds.append((expandNormalized(facesUnion, margin: 0.12), "人脸集合"))
+        }
+
+        for (index, human) in context.humans.enumerated() {
+            let expanded = expandNormalized(human.rect, margin: 0.14)
+            seeds.append((expanded, "人体#\(index + 1)"))
+        }
+        if let humansUnion = unionRect(context.humans.map { $0.rect }) {
+            seeds.append((expandNormalized(humansUnion, margin: 0.10), "人体集合"))
+        }
+
+        if !context.saliencyRects.isEmpty {
+            for (index, sal) in context.saliencyRects.enumerated() {
+                let expanded = expandNormalized(sal.rect, margin: 0.08)
+                seeds.append((expanded, "显著性#\(index + 1)"))
+            }
+            if let saliencyUnion = unionRect(context.saliencyRects.map { $0.rect }) {
+                seeds.append((expandNormalized(saliencyUnion, margin: 0.06), "显著性集合"))
+            }
+        }
+
+        if let last = lastRawRect {
+            seeds.append((expandNormalized(last, margin: 0.04), "历史延续"))
+        }
+
+        if seeds.isEmpty {
+            seeds.append((CGRect(x: 0.2, y: 0.1, width: 0.6, height: 0.7), "默认种子"))
+        }
+
+        let thirdsPoints = [CGPoint(x: 1.0/3.0, y: 1.0/3.0),
+                            CGPoint(x: 2.0/3.0, y: 1.0/3.0),
+                            CGPoint(x: 1.0/3.0, y: 2.0/3.0),
+                            CGPoint(x: 2.0/3.0, y: 2.0/3.0)]
+        var result: [Candidate] = []
+        var dedupe = Set<String>()
+
+        func appendCandidate(_ rect: CGRect, reason: String) {
+            let key = [rect.origin.x, rect.origin.y, rect.size.width, rect.size.height]
+                .map { Int(round($0 * 1000)) }
+                .map(String.init)
+                .joined(separator: ":")
+            if dedupe.insert(key).inserted {
+                result.append(Candidate(rect: rect, reason: reason))
+            }
+        }
+
+        for (seedRect, seedReason) in seeds {
+            let base = expandToAspect3x4(covering: seedRect)
+            appendCandidate(base, reason: seedReason)
+            for point in thirdsPoints {
+                let moved = moveRect(base, centerToward: point, maxShift: 0.07)
+                appendCandidate(moved, reason: seedReason + "+三分漂移")
+            }
+            for scale in [0.92, 0.98, 1.0, 1.04] as [CGFloat] {
+                let scaled = scaleRect(base, scale: scale)
+                appendCandidate(scaled, reason: seedReason + String(format: "+scale%.2f", Double(scale)))
+            }
+        }
+
+        appendCandidate(centerRect3x4(), reason: "中心参考")
+
+        return result
+    }
+
+    private func subjectScore(for rect: CGRect, context: VisionContext) -> CGFloat {
+        let faceScore = weightedCoverage(of: rect, with: context.faces)
+        let humanScore = weightedCoverage(of: rect, with: context.humans)
+        if faceScore == 0 && humanScore == 0 {
+            return context.saliencyRects.isEmpty ? 0 : 0.15
+        }
+        let combined = max(faceScore, humanScore)
+        let secondary = min(faceScore, humanScore)
+        return min(1.0, combined + 0.4 * secondary)
+    }
+
+    private func saliencyScore(for rect: CGRect, context: VisionContext) -> CGFloat {
+        if context.saliencyRects.isEmpty {
+            return context.hasDetections ? 0.35 : 0.5
+        }
+        return min(1.0, weightedCoverage(of: rect, with: context.saliencyRects))
+    }
+
+    private func breathingScore(of rect: CGRect) -> CGFloat {
+        let left = rect.minX
+        let right = 1.0 - rect.maxX
+        let bottom = rect.minY
+        let top = 1.0 - rect.maxY
+        let minMargin = max(0, min(left, right, bottom, top))
+        return min(1.0, minMargin / 0.12)
+    }
+
+    private func continuityScore(for rect: CGRect) -> CGFloat {
+        guard let previous = lastRawRect else { return 0.6 }
+        let deltaCenter = hypot(rect.midX - previous.midX, rect.midY - previous.midY)
+        let deltaSize = hypot(rect.width - previous.width, rect.height - previous.height)
+        let centerScore = max(0, 1.0 - deltaCenter / 0.3)
+        let sizeScore = max(0, 1.0 - deltaSize / 0.3)
+        return 0.5 * (centerScore + sizeScore)
+    }
+
+    private func weightedCoverage(of rect: CGRect, with items: [WeightedRect]) -> CGFloat {
+        guard !items.isEmpty else { return 0 }
+        let rectArea = rect.width * rect.height
+        guard rectArea > 0 else { return 0 }
+        var sum: CGFloat = 0
+        for item in items {
+            let inter = rect.intersection(item.rect)
+            if inter.isNull || inter.isEmpty { continue }
+            let coverage = (inter.width * inter.height) / rectArea
+            sum += coverage * item.weight
+        }
+        return min(1.0, sum)
+    }
+
+    private func expandNormalized(_ rect: CGRect, margin: CGFloat) -> CGRect {
+        let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let expandX = rect.width * margin
+        let expandY = rect.height * margin
+        var expanded = CGRect(x: rect.origin.x - expandX,
+                              y: rect.origin.y - expandY,
+                              width: rect.width + expandX * 2,
+                              height: rect.height + expandY * 2)
+        expanded = expanded.standardized
+        expanded = expanded.intersection(unit)
+        if expanded.isNull {
+            return unit
+        }
+        return expanded
+    }
+
+    private func unionRect(_ rects: [CGRect]) -> CGRect? {
+        guard var union = rects.first else { return nil }
+        for rect in rects.dropFirst() {
+            union = union.union(rect)
+        }
+        return union.standardized
     }
 
     // MARK: - Geometry helpers (normalized [0,1], origin bottom-left)
@@ -177,12 +328,6 @@ final class AdacropModel {
         // 保持 3:4，不裁断；若超界则回缩
         out = clampToUnit(out, inside: CGRect(x: 0, y: 0, width: 1, height: 1))
         return out
-    }
-
-    private func coverage(of a: CGRect, over b: CGRect) -> CGFloat {
-        let inter = a.intersection(b)
-        if inter.isNull || inter.isEmpty { return 0 }
-        return inter.width * inter.height / max(1e-6, b.width * b.height)
     }
 
     private func thirdsFit(of r: CGRect) -> CGFloat {
