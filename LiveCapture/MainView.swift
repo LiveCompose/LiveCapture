@@ -9,17 +9,9 @@ import SwiftUI
 
 enum AppMode: String, CaseIterable, Identifiable {
     case user
-    case debug
     var id: String { rawValue }
-    var title: String { self == .user ? "用户模式" : "调试模式" }
-    var description: String {
-        switch self {
-        case .user:
-            return "简洁拍摄界面，参考系统相机布局。"
-        case .debug:
-            return "显示稳定性、相似度、模板缩略图等调试信息。"
-        }
-    }
+    var title: String { "拍摄模式" }
+    var description: String { "默认界面，可通过右下角按钮切换调试信息。" }
 }
 
 struct MainView: View {
@@ -40,14 +32,14 @@ struct MainView: View {
                     }
                 }
                 Section("提示") {
-                    Text("建议在光线充足下体验用户模式；调试模式将显示更多传感器与匹配参数。")
+                    Text("点击取景界面底部的“眼睛”按钮可随时显示或隐藏调试信息。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
             }
             .navigationTitle("LiveCapture")
-            .navigationDestination(for: AppMode.self) { mode in
-                ContentView(mode: mode)
+            .navigationDestination(for: AppMode.self) { _ in
+                ContentView()
             }
         }
     }

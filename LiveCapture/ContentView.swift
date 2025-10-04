@@ -18,7 +18,6 @@ import ImageIO
 #if os(iOS) || os(tvOS)
 
 struct ContentView: View {
-    var mode: AppMode = .user
     @StateObject private var camera = CameraManager() // 相机控制器（保持为 Observed 对象）
     @StateObject private var motion = MotionStabilityMonitor() // 设备运动监控（用于稳定性与方向转换）
     @StateObject private var previewProvider = PreviewLayerProvider() // 暴露预览层，方便做坐标转换
@@ -42,7 +41,7 @@ struct ContentView: View {
     
     // 调试状态变量
     @State private var debugMessage = "等待相机启动..."
-    @State private var showDebugInfo = true
+    @State private var showDebugInfo = false // 默认隐藏调试栏，由按钮控制
 
     var body: some View {
         GeometryReader { geo in
@@ -53,9 +52,7 @@ struct ContentView: View {
                 CameraPreviewView(session: camera.session, provider: previewProvider)
                     .ignoresSafeArea()
 
-                if mode == .user {
-                    GridOverlayView().ignoresSafeArea()
-                }
+                GridOverlayView().ignoresSafeArea()
 
                 AspectMaskView().ignoresSafeArea()
 
@@ -68,62 +65,50 @@ struct ContentView: View {
                             compositionRect: compositionRect)
 
                 // 用户模式底部控制条（参考系统相机）
-                if mode == .user {
-                    VStack {
-                        Spacer()
-                        HStack(spacing: 24) {
-                            Button(action: {}) {
-                                Image(systemName: "bolt.circle")
-                                    .font(.system(size: 22, weight: .regular))
-                                    .foregroundStyle(.white)
-                                    .opacity(0.9)
-                            }
-                            Spacer()
-                            Button(action: { camera.capturePhoto() }) {
-                                Circle()
-                                    .strokeBorder(Color.white, lineWidth: 6)
-                                    .frame(width: 78, height: 78)
-                                    .overlay(Circle().fill(Color.white.opacity(0.15)))
-                            }
-                            Button(action: { resetDetectionState() }) {
-                                Image(systemName: "gobackward")
-                                    .font(.system(size: 22, weight: .regular))
-                                    .foregroundStyle(.white)
-                                    .opacity(0.9)
-                            } // 重新检测按钮：允许用户手动恢复 Adacrop 与模板状态
-                            Spacer()
-                            Button(action: {}) {
-                                Image(systemName: "arrow.triangle.2.circlepath.camera")
-                                    .font(.system(size: 22, weight: .regular))
-                                    .foregroundStyle(.white)
-                                    .opacity(0.9)
-                            }
+                VStack {
+                    Spacer()
+                    HStack(spacing: 24) {
+                        Button(action: {}) {
+                            Image(systemName: "bolt.circle")
+                                .font(.system(size: 22, weight: .regular))
+                                .foregroundStyle(.white)
+                                .opacity(0.9)
                         }
-                        .padding(.horizontal, 28)
-                        .padding(.bottom, 26)
-                    }
-                } else {
-                    // 兼容原来的居中快门用于调试
-                    VStack {
+                        Button(action: { showDebugInfo.toggle() }) {
+                            Image(systemName: showDebugInfo ? "eye.slash.circle" : "eye.circle")
+                                .font(.system(size: 22, weight: .regular))
+                                .foregroundStyle(.white)
+                                .opacity(0.9)
+                        } // 调试信息开关按钮
                         Spacer()
-                        HStack {
-                            Spacer()
-                            Button(action: { camera.capturePhoto() }) {
-                                Circle()
-                                    .strokeBorder(Color.white, lineWidth: 6)
-                                    .frame(width: 72, height: 72)
-                                    .overlay(Circle().fill(Color.white.opacity(0.15)))
-                            }
-                            .padding(.bottom, 32)
-                            Spacer()
+                        Button(action: { camera.capturePhoto() }) {
+                            Circle()
+                                .strokeBorder(Color.white, lineWidth: 6)
+                                .frame(width: 78, height: 78)
+                                .overlay(Circle().fill(Color.white.opacity(0.15)))
+                        }
+                        Button(action: { resetDetectionState() }) {
+                            Image(systemName: "gobackward")
+                                .font(.system(size: 22, weight: .regular))
+                                .foregroundStyle(.white)
+                                .opacity(0.9)
+                        } // 重新检测按钮：允许用户手动恢复 Adacrop 与模板状态
+                        Spacer()
+                        Button(action: {}) {
+                            Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                .font(.system(size: 22, weight: .regular))
+                                .foregroundStyle(.white)
+                                .opacity(0.9)
                         }
                     }
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 26)
                 }
             }
             .overlay(alignment: .top) {
                 VStack(spacing: 8) {
                 // 调试信息显示
-                if showDebugInfo && mode == .debug {
+                if showDebugInfo {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text("调试信息")
@@ -192,12 +177,6 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 16)
                     #endif
-                } else if mode == .debug {
-                    Button("显示调试") { showDebugInfo = true }
-                        .font(.caption2)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule())
                 }
 
                 // 保存成功提示
@@ -456,9 +435,9 @@ extension ContentView {
         // 将归一化偏移量映射到实际像素：横向取构图宽度的 40%，纵向同理（并限制在窗口内）
         let maxOffsetX = compositionRectInView.width * 0.4
         let maxOffsetY = compositionRectInView.height * 0.4
-        // 俯仰映射到屏幕纵轴时需要取反，使“抬头”对应点上移
+        // Y 轴保持同向：陀螺仪正偏移（抬头）时实心圆向上移动
         let target = CGPoint(x: base.x + offset.x * maxOffsetX,
-                             y: base.y - offset.y * maxOffsetY)
+                             y: base.y + offset.y * maxOffsetY)
         let clamped = clamp(point: target, to: compositionRectInView)
         DispatchQueue.main.async {
             self.boxCenterInView = clamped
