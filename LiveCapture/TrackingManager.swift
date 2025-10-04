@@ -7,12 +7,17 @@ import Foundation
 import Vision
 import AVFoundation
 
+/// 基于 Vision 的目标跟踪辅助类，为模板匹配提供平滑的中心点。
 final class TrackingManager {
+    /// Vision 跟踪请求实例。
     private var request: VNTrackObjectRequest?
+    /// 串行队列，确保 Vision 请求与状态更新线程安全。
     private let queue: DispatchQueue = DispatchQueue(label: "livecapture.tracking.queue")
     
     // 用于平滑跟踪结果的缓冲区
+    /// 最近的跟踪矩形样本。
     private var recentBoxes: [CGRect] = []
+    /// 最近的置信度样本。
     private var recentConfidences: [Float] = []
     private let smoothingWindowSize = 3
     
@@ -22,9 +27,12 @@ final class TrackingManager {
     private let requiredGoodFrames = 1    // 需要连续2帧好的结果才认为跟踪稳定
     private let maxBadFrames = 5000          // 超过5帧差的结果才重置跟踪，给予更多容错
 
+    /// 跟踪更新回调，返回归一化矩形与置信度。
     var onUpdate: ((CGRect, Float) -> Void)? // boundingBox (normalized), confidence
+    /// 跟踪失败时的回调。
     var onTrackingLost: (() -> Void)?         // 跟踪丢失回调
 
+    /// 从初始检测框开始跟踪目标。
     func startTracking(from initialBox: CGRect, pixelBuffer: CVPixelBuffer) {
         queue.async {
             // 重置跟踪状态
@@ -42,6 +50,7 @@ final class TrackingManager {
         }
     }
 
+    /// 清空跟踪状态与缓存。
     func reset() {
         queue.async { 
             self.request = nil
@@ -52,6 +61,7 @@ final class TrackingManager {
         }
     }
 
+    /// 续帧跟踪：在最新像素缓冲上运行 Vision 请求。
     func track(pixelBuffer: CVPixelBuffer) {
         guard let req: VNTrackObjectRequest = self.request else { return }
         queue.async {
@@ -71,6 +81,7 @@ final class TrackingManager {
         }
     }
     
+    /// 根据单帧跟踪结果更新平滑状态与回调。
     private func processTrackingResult(boundingBox: CGRect, confidence: Float) {
         // 降低置信度阈值，提高跟踪稳定性
         let minConfidence: Float = 0.3
@@ -110,6 +121,7 @@ final class TrackingManager {
     }
     
     // 计算平滑后的边界框
+    /// 对最近的跟踪矩形求平均，输出平滑结果。
     private func calculateSmoothedBoundingBox() -> CGRect {
         guard !recentBoxes.isEmpty else { return .zero }
         

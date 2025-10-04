@@ -11,40 +11,15 @@ import ImageIO
 
 #if os(iOS)
 
+/// 表示归一化坐标中的裁剪结果。
 struct CropBox {
+    /// 在 Vision 坐标系中的归一化矩形（原点左下角）。
     let rectInNormalizedImage: CGRect // origin at bottom-left in Vision coordinates
+    /// 描述采用的检测来源，可用于调试展示。
     let detectionType: String         // 用于调试，说明使用了哪种检测方法
 }
 
-final class UniformRectSmoother {
-    private let response: CGFloat
-    private var lastRect: CGRect?
-
-    init(response: CGFloat) {
-        self.response = response
-        self.lastRect = nil
-    }
-
-    func filter(_ rect: CGRect) -> CGRect {
-        guard let last = lastRect else {
-            lastRect = rect
-            return rect
-        }
-        let smoothed = CGRect(
-            x: last.origin.x + response * (rect.origin.x - last.origin.x),
-            y: last.origin.y + response * (rect.origin.y - last.origin.y),
-            width: last.size.width + response * (rect.size.width - last.size.width),
-            height: last.size.height + response * (rect.size.height - last.size.height)
-        )
-        lastRect = smoothed
-        return smoothed
-    }
-
-    func reset() {
-        lastRect = nil
-    }
-}
-
+/// 基于 Vision 检测与启发式评分挑选最佳 3:4 构图的模型。
 final class AdacropModel {
     private let handlerQueue = DispatchQueue(label: "livecapture.adacrop.queue")
     private var rectSmoother = UniformRectSmoother(response: 0.25)
@@ -54,6 +29,7 @@ final class AdacropModel {
         // 简化初始化，不再需要模型文件
     }
 
+    /// 清空平滑器缓存，便于重新检测。
     func resetSmoothing() {
         handlerQueue.async {
             self.rectSmoother.reset()
@@ -61,6 +37,7 @@ final class AdacropModel {
         }
     }
 
+    /// 根据输入像素缓冲预测最佳裁剪框，结果通过回调返回。
     func predictCropBox(pixelBuffer: CVPixelBuffer,
                         orientation: CGImagePropertyOrientation,
                         completion: @escaping (CropBox?) -> Void) {
@@ -79,11 +56,13 @@ final class AdacropModel {
         }
     }
     
+    /// 携带置信度权重的矩形检测结果。
     private struct WeightedRect {
         let rect: CGRect
         let weight: CGFloat
     }
 
+    /// 聚合 Vision 请求的检测上下文，便于综合评分。
     private struct VisionContext {
         let faces: [WeightedRect]
         let humans: [WeightedRect]
@@ -95,17 +74,20 @@ final class AdacropModel {
         }
     }
 
+    /// 原始候选矩形及其产生原因。
     private struct Candidate {
         let rect: CGRect
         let reason: String
     }
 
+    /// 带有得分的候选矩形。
     private struct EvaluatedCandidate {
         let rect: CGRect
         let reason: String
         let score: CGFloat
     }
 
+    /// 执行多种 Vision 请求并构建检测上下文。
     private func makeVisionContext(pixelBuffer: CVPixelBuffer,
                                    orientation: CGImagePropertyOrientation) -> VisionContext {
         let faceRequest = VNDetectFaceRectanglesRequest()
@@ -129,6 +111,7 @@ final class AdacropModel {
                              saliencyObservation: saliencyObservation)
     }
 
+    /// 根据组合评分挑选表现最佳的候选框。
     private func selectBestCandidate(in context: VisionContext) -> EvaluatedCandidate? {
         let candidates = generateCandidates(for: context)
         guard !candidates.isEmpty else { return nil }
@@ -152,6 +135,7 @@ final class AdacropModel {
         return best
     }
 
+    /// 根据检测结果与历史状态生成一组候选框。
     private func generateCandidates(for context: VisionContext) -> [Candidate] {
         var seeds: [(CGRect, String)] = []
 
@@ -224,6 +208,7 @@ final class AdacropModel {
         return result
     }
 
+    /// 计算矩形覆盖人脸/人体主体的得分。
     private func subjectScore(for rect: CGRect, context: VisionContext) -> CGFloat {
         let faceScore = weightedCoverage(of: rect, with: context.faces)
         let humanScore = weightedCoverage(of: rect, with: context.humans)
@@ -235,6 +220,7 @@ final class AdacropModel {
         return min(1.0, combined + 0.4 * secondary)
     }
 
+    /// 根据显著性结果评估矩形的关注度。
     private func saliencyScore(for rect: CGRect, context: VisionContext) -> CGFloat {
         if context.saliencyRects.isEmpty {
             return context.hasDetections ? 0.35 : 0.5
@@ -242,6 +228,7 @@ final class AdacropModel {
         return min(1.0, weightedCoverage(of: rect, with: context.saliencyRects))
     }
 
+    /// 衡量矩形是否保留充足“呼吸空间”。
     private func breathingScore(of rect: CGRect) -> CGFloat {
         let left = rect.minX
         let right = 1.0 - rect.maxX
@@ -251,6 +238,7 @@ final class AdacropModel {
         return min(1.0, minMargin / 0.12)
     }
 
+    /// 鼓励与上一帧位置/尺寸保持连续的得分项。
     private func continuityScore(for rect: CGRect) -> CGFloat {
         guard let previous = lastRawRect else { return 0.6 }
         let deltaCenter = hypot(rect.midX - previous.midX, rect.midY - previous.midY)
@@ -260,6 +248,7 @@ final class AdacropModel {
         return 0.5 * (centerScore + sizeScore)
     }
 
+    /// 统计矩形与加权检测框的重叠比例。
     private func weightedCoverage(of rect: CGRect, with items: [WeightedRect]) -> CGFloat {
         guard !items.isEmpty else { return 0 }
         let rectArea = rect.width * rect.height
@@ -274,6 +263,7 @@ final class AdacropModel {
         return min(1.0, sum)
     }
 
+    /// 以固定比例扩展矩形并限制于单位区间。
     private func expandNormalized(_ rect: CGRect, margin: CGFloat) -> CGRect {
         let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
         let expandX = rect.width * margin
@@ -290,6 +280,7 @@ final class AdacropModel {
         return expanded
     }
 
+    /// 计算多个矩形的并集。
     private func unionRect(_ rects: [CGRect]) -> CGRect? {
         guard var union = rects.first else { return nil }
         for rect in rects.dropFirst() {
@@ -299,6 +290,7 @@ final class AdacropModel {
     }
 
     // MARK: - Geometry helpers (normalized [0,1], origin bottom-left)
+    /// 扩展矩形以覆盖种子并满足 3:4 长宽比。
     private func expandToAspect3x4(covering rect: CGRect) -> CGRect {
         let aspectW: CGFloat = 3
         let aspectH: CGFloat = 4
@@ -327,6 +319,7 @@ final class AdacropModel {
         return out
     }
 
+    /// 将矩形限制在 [0,1] × [0,1] 范围内。
     private func clampToUnit(_ r: CGRect, inside unit: CGRect) -> CGRect {
         var out = r
         if out.minX < unit.minX { out.origin.x = unit.minX }
@@ -336,6 +329,7 @@ final class AdacropModel {
         return out
     }
 
+    /// 将矩形中心向目标点平移，限制最大偏移量。
     private func moveRect(_ r: CGRect, centerToward target: CGPoint, maxShift: CGFloat) -> CGRect {
         let cx = r.midX
         let cy = r.midY
@@ -350,6 +344,7 @@ final class AdacropModel {
         return moved
     }
 
+    /// 按比例缩放矩形并保持中心不变。
     private func scaleRect(_ r: CGRect, scale: CGFloat) -> CGRect {
         let cx = r.midX
         let cy = r.midY
@@ -361,6 +356,7 @@ final class AdacropModel {
         return out
     }
 
+    /// 计算矩形中心与九宫格交点的贴合程度。
     private func thirdsFit(of r: CGRect) -> CGFloat {
         let center = CGPoint(x: r.midX, y: r.midY)
         let points = [CGPoint(x: 1/3, y: 1/3), CGPoint(x: 2/3, y: 1/3), CGPoint(x: 1/3, y: 2/3), CGPoint(x: 2/3, y: 2/3)]
@@ -371,6 +367,7 @@ final class AdacropModel {
         return score
     }
 
+    /// 返回默认的中心 3:4 参考矩形。
     private func centerRect3x4() -> CGRect {
         let w: CGFloat = 0.6
         let h: CGFloat = w * 4.0 / 3.0

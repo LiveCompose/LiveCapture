@@ -11,6 +11,7 @@ import AVFoundation
 import UIKit
 #endif
 
+/// 使用模板匹配衡量构图对齐情况的辅助类。
 final class TemplateMatcher {
     private let context: CIContext = CIContext()
     private let queue: DispatchQueue = DispatchQueue(label: "livecapture.template.queue")
@@ -18,18 +19,26 @@ final class TemplateMatcher {
     // Template as normalized float vector
     private var templateVector: [Float]? = nil
     private var targetSize: Int = 64 // template width and height (square)
+    private var matchScale: CGFloat = 0.3 // shared side proportion for template and probe squares
 
     // Cache for debug preview
     private var lastTemplateCGImage: CGImage? = nil
 
     // Public config
-    // 模板方块（来自裁切框中心）的边长比例（相对裁切框 min(width,height)）——较大更稳健
-    var templateScaleInRegion: CGFloat = 0.1
-    // 探测方块（来自画面中心 3:4 区域）的边长比例（相对 3:4 矩形 min(width,height)）——较小更容易匹配
-    var probeScaleInComp: CGFloat = 0.1
+    // 模板方块和探测方块共用的边长比例（相对 3:4 矩形 min(width,height)）——只影响尺寸，不改变中心逻辑
+    var templateScaleInRegion: CGFloat {
+        get { matchScale }
+        set { matchScale = newValue }
+    }
+    var probeScaleInComp: CGFloat {
+        get { matchScale }
+        set { matchScale = newValue }
+    }
 
+    /// 是否已生成模板向量，可作为匹配前置条件。
     var hasTemplate: Bool { queue.sync { templateVector != nil } }
 
+    /// 清除模板缓存与调试图像。
     func resetTemplate() {
         queue.async {
             self.templateVector = nil
@@ -38,14 +47,17 @@ final class TemplateMatcher {
     }
 
     // Convenience wrapper
+    /// 同步生成模板的便捷入口。
     func setTemplate(from pixelBuffer: CVPixelBuffer, normalizedRegion: CGRect) {
         setTemplate(from: pixelBuffer, normalizedRegion: normalizedRegion, completion: nil)
     }
 
     // Completion-capable setup; completion invoked on main queue
+    /// 异步提取模板方块并转换为向量，完成后回调主线程。
     func setTemplate(from pixelBuffer: CVPixelBuffer, normalizedRegion: CGRect, completion: ((Bool) -> Void)?) {
         queue.async {
-            let crop = self.centerSquare(in: normalizedRegion, pixelBuffer: pixelBuffer, scale: self.templateScaleInRegion)
+            let side = self.matchSquareSide(in: pixelBuffer)
+            let crop = self.centerSquare(in: normalizedRegion, pixelBuffer: pixelBuffer, side: side)
             guard let cg = self.extractCGImage(from: pixelBuffer, cropping: crop),
                   let vec = self.imageToVector(cg) else {
                 DispatchQueue.main.async { completion?(false) }
@@ -58,6 +70,7 @@ final class TemplateMatcher {
     }
 
     // Returns similarity in [0, 1] using cosine similarity mapped from [-1,1] to [0,1]
+    /// 计算模板与当前帧中心区域的相似度，范围 [0,1]。
     func similarityWithCenter(of pixelBuffer: CVPixelBuffer) -> Float? {
         queue.sync {
             guard let tpl: [Float] = self.templateVector else { return nil }
@@ -73,10 +86,12 @@ final class TemplateMatcher {
     }
 
     // MARK: - Debug preview helpers
+    /// 获取缓存的模板 CGImage，用于调试展示。
     func templateCGImage() -> CGImage? {
         queue.sync { lastTemplateCGImage }
     }
 
+    /// 裁剪当前帧中心方块的 CGImage。
     func centerCGImage(from pixelBuffer: CVPixelBuffer) -> CGImage? {
         queue.sync {
             let rect = self.centerSquareInFullFrame(pixelBuffer: pixelBuffer)
@@ -85,11 +100,13 @@ final class TemplateMatcher {
     }
 
     #if canImport(UIKit)
+    /// 以 UIImage 形式返回模板调试视图。
     func templateUIImage() -> UIImage? {
         guard let cg = templateCGImage() else { return nil }
         return UIImage(cgImage: cg)
     }
 
+    /// 返回当前帧中心区域的 UIImage，用于调试。
     func centerUIImage(from pixelBuffer: CVPixelBuffer) -> UIImage? {
         guard let cg = centerCGImage(from: pixelBuffer) else { return nil }
         return UIImage(cgImage: cg)
@@ -98,9 +115,10 @@ final class TemplateMatcher {
 
     // MARK: - Helpers
 
+    /// 获取像素空间中居中的 3:4 构图区域。
     private func compositionRect3x4InPixels(pixelBuffer: CVPixelBuffer) -> CGRect {
         let width = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
-        let height = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+    let height = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
         // Fit 3:4 inside the full pixel buffer (portrait composition)
         // width:height = 3:4 => width = height * 0.75
         let targetWidth = min(width, height * 0.75)
@@ -110,9 +128,10 @@ final class TemplateMatcher {
         return CGRect(x: originX, y: originY, width: targetWidth, height: targetHeight)
     }
 
-    private func centerSquare(in normalizedRegion: CGRect, pixelBuffer: CVPixelBuffer, scale: CGFloat) -> CGRect {
+    /// 将归一化区域映射到像素空间并约束在 3:4 构图内。
+    private func centerSquare(in normalizedRegion: CGRect, pixelBuffer: CVPixelBuffer, side: CGFloat) -> CGRect {
         let width = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
-        let height = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+    let height = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
         // Vision normalized (origin bottom-left) -> pixel coords (origin top-left for our crop)
         let px = normalizedRegion.origin.x * width
         let pyTopLeft = (1.0 - normalizedRegion.origin.y - normalizedRegion.size.height) * height
@@ -123,23 +142,29 @@ final class TemplateMatcher {
         // Constrain to 3:4 composition rect to match still photo FOV
         let comp = compositionRect3x4InPixels(pixelBuffer: pixelBuffer)
         let targetRect = rect.intersection(comp).isNull ? comp : rect.intersection(comp)
-
-        let side = min(targetRect.width, targetRect.height) * max(0.02, min(0.9, scale))
-        let cx = min(max(targetRect.midX, comp.minX), comp.maxX)
-        let cy = min(max(targetRect.midY, comp.minY), comp.maxY)
-        var square = CGRect(x: cx - side/2, y: cy - side/2, width: side, height: side)
-        square = square.intersection(comp)
-        return square
+        let halfSide = side / 2.0
+        let clampedCx = min(max(targetRect.midX, comp.minX + halfSide), comp.maxX - halfSide)
+        let clampedCy = min(max(targetRect.midY, comp.minY + halfSide), comp.maxY - halfSide)
+        return CGRect(x: clampedCx - halfSide, y: clampedCy - halfSide, width: side, height: side)
     }
 
+    /// 计算整帧中心的正方形区域，用于探测窗口。
     private func centerSquareInFullFrame(pixelBuffer: CVPixelBuffer) -> CGRect {
         // Use center inside 3:4 composition rect to match still photo field of view
         let comp = compositionRect3x4InPixels(pixelBuffer: pixelBuffer)
-        let side = min(comp.width, comp.height) * max(0.02, min(0.9, probeScaleInComp))
+        let side = matchSquareSide(in: pixelBuffer)
         let square = CGRect(x: comp.midX - side/2, y: comp.midY - side/2, width: side, height: side)
         return square
     }
 
+    /// 根据构图窗口尺寸与比例确定模板边长。
+    private func matchSquareSide(in pixelBuffer: CVPixelBuffer) -> CGFloat {
+        let comp = compositionRect3x4InPixels(pixelBuffer: pixelBuffer)
+        let sideRatio = max(0.02, min(0.9, matchScale))
+        return min(comp.width, comp.height) * sideRatio
+    }
+
+    /// 裁剪并缩放像素缓冲中的区域为固定大小 CGImage。
     private func extractCGImage(from pixelBuffer: CVPixelBuffer, cropping cropRect: CGRect) -> CGImage? {
         let imgH = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
@@ -166,6 +191,7 @@ final class TemplateMatcher {
         return ctx.makeImage()
     }
 
+    /// 将灰度化后的图像像素转换为浮点向量。
     private func imageToVector(_ image: CGImage) -> [Float]? {
         let width = image.width
         let height = image.height
@@ -196,6 +222,7 @@ final class TemplateMatcher {
         return vec
     }
 
+    /// 对向量执行零均值单位方差的归一化。
     private func normalizeVector(_ v: [Float]) -> [Float] {
         let n = v.count
         guard n > 0 else { return v }
@@ -207,6 +234,7 @@ final class TemplateMatcher {
         return centered
     }
 
+    /// 计算两个向量的余弦相似度。
     private func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
         guard a.count == b.count, !a.isEmpty else { return 0 }
         var dot: Float = 0

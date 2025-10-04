@@ -7,6 +7,7 @@ import SwiftUI
 
 #if os(iOS)
 
+/// 应用模式选项，便于扩展更多使用场景。
 enum AppMode: String, CaseIterable, Identifiable {
     case user
     var id: String { rawValue }
@@ -14,9 +15,12 @@ enum AppMode: String, CaseIterable, Identifiable {
     var description: String { "原神启动！" }
 }
 
+/// 应用首页，提供模式选择与导航到取景界面。
 struct MainView: View {
+    /// 当前选中的应用模式。
     @State private var selection: AppMode? = nil
 
+    /// 构建模式列表与导航栈。
     var body: some View {
         NavigationStack {
             List {

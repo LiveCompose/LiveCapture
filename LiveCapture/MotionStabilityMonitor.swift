@@ -10,13 +10,18 @@ import CoreGraphics
 #if os(iOS)
 import CoreMotion
 
+/// 负责监控设备运动稳定性并将陀螺仪姿态映射到屏幕偏移。
 final class MotionStabilityMonitor: ObservableObject {
+    /// Core Motion 管理器，用于访问传感器数据。
     private let motion = CMMotionManager()
     // 使用串行队列确保线程安全
     private let dataQueue = DispatchQueue(label: "livecapture.motion.data", qos: .userInitiated)
 
+    /// 指示当前是否处于稳定状态。
     @Published var isStable: Bool = false
+    /// 调试说明文字，展示传感器统计信息。
     @Published var debugInfo: String = "初始化中..."
+    /// 陀螺仪映射出的 2D 归一化偏移量。
     @Published var screenOffsetNormalized: CGPoint = .zero // 陀螺仪转换出的 2D 归一化偏移量
 
     // configurable - 针对跟踪场景优化的阈值
@@ -43,6 +48,7 @@ final class MotionStabilityMonitor: ObservableObject {
     private let maxAngle: Double = .pi / 6 // 控制映射到界面的最大角度（约 30°）
     private var offsetSmoother = UniformPointSmoother(response: 0.25)
 
+    /// 启动传感器采集与稳定性分析。
     func start() {
         guard motion.isAccelerometerAvailable || motion.isGyroAvailable || motion.isDeviceMotionAvailable else { return }
         motion.accelerometerUpdateInterval = 1.0 / 60.0
@@ -79,6 +85,7 @@ final class MotionStabilityMonitor: ObservableObject {
         }
     }
 
+    /// 停止传感器采集并清理内部状态。
     func stop() {
         motion.stopAccelerometerUpdates()
         motion.stopGyroUpdates()
@@ -100,6 +107,7 @@ final class MotionStabilityMonitor: ObservableObject {
         }
     }
 
+    /// 将当前姿态设为零点，用于随后偏移计算。
     func lockReferenceAttitude() {
         // 将当前姿态记为参考零点，供 3D -> 2D 偏移换算使用
         dataQueue.async {
@@ -112,6 +120,7 @@ final class MotionStabilityMonitor: ObservableObject {
         }
     }
 
+    /// 清空姿态零点，重新开始偏移估计。
     func resetReferenceAttitude() {
         // 清除参考姿态，同时把偏移归零
         dataQueue.async {
@@ -124,6 +133,7 @@ final class MotionStabilityMonitor: ObservableObject {
         }
     }
 
+    /// 根据最新陀螺仪姿态计算屏幕坐标系中的偏移。
     private func updateScreenOffset(with data: CMDeviceMotion) {
         // 将陀螺仪的俯仰/横滚角映射到屏幕上的二维偏移
         let pitch = data.attitude.pitch
@@ -147,24 +157,28 @@ final class MotionStabilityMonitor: ObservableObject {
         }
     }
 
+    /// 记录一条加速度样本并裁剪窗口。
     private func appendAccSample(_ v: CMAcceleration) {
         let now = Date().timeIntervalSince1970
         accSamples.append((now, v))
         trim(&accSamples, now: now)
     }
 
+    /// 记录一条陀螺仪样本并裁剪窗口。
     private func appendGyroSample(_ v: CMRotationRate) {
         let now = Date().timeIntervalSince1970
         gyroSamples.append((now, v))
         trim(&gyroSamples, now: now)
     }
 
+    /// 剪去超出滑动窗口的历史样本。
     private func trim<T>(_ arr: inout [(t: TimeInterval, v: T)], now: TimeInterval) {
         let cutoff = now - windowSeconds
         while let first = arr.first, first.t < cutoff { arr.removeFirst() }
     }
     
     // 限流版本的更新稳定性函数
+    /// 按节流逻辑触发稳定性计算，避免过度频繁。
     private func updateStabilityIfNeeded() {
         let now = Date().timeIntervalSince1970
         guard now - lastUpdateTime >= updateInterval else { return }
@@ -172,6 +186,7 @@ final class MotionStabilityMonitor: ObservableObject {
         updateStability()
     }
 
+    /// 汇总传感器标准差并评估连续稳定帧。
     private func updateStability() {
         guard !accSamples.isEmpty || !gyroSamples.isEmpty else { return }
 

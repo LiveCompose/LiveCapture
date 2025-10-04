@@ -14,52 +14,75 @@ import Vision
 import CoreImage
 import ImageIO
 
-/// A description
+/// iOS 主取景界面与功能入口，仅在 iOS 平台编译。
 #if os(iOS)
 
+/// iOS 主取景界面，负责相机预览、模板匹配以及提示反馈。
 struct ContentView: View {
-    @StateObject private var camera = CameraManager() // 相机控制器（保持为 Observed 对象）
-    @StateObject private var motion = MotionStabilityMonitor() // 设备运动监控（用于稳定性与方向转换）
-    private let adacrop = AdacropModel() // Adacrop 推理模型
-    private static let ciContext = CIContext() // CoreImage 上下文，用于像素裁剪（3:4）
+    /// 相机控制器（保持为 Observed 对象）。
+    @StateObject private var camera = CameraManager()
+    /// 设备运动监控（用于稳定性与方向转换）。
+    @StateObject private var motion = MotionStabilityMonitor()
+    /// Adacrop 推理模型。
+    private let adacrop = AdacropModel()
+    /// CoreImage 上下文，用于像素裁剪（3:4）。
+    private static let ciContext = CIContext()
 
-    @State private var cropRectInView: CGRect? = nil // 当前 3:4 裁切框在界面中的坐标
-    @State private var baseBoxCenterInView: CGPoint? = nil // 初次检测得到的框中心（作为运动偏移的基准）
-    @State private var boxCenterInView: CGPoint? = nil // 实时显示的实心圆位置
-    @State private var compositionRectInView: CGRect = .zero // 记录当前界面中的 3:4 构图窗口
-    @State private var lastCroppedPixelBuffer: CVPixelBuffer? = nil // 缓存最近一次 3:4 裁剪后的像素缓冲，供调试显示
-    @State private var isAligned: Bool = false // 是否满足模板匹配阈值，用于对准提示
+    /// 当前 3:4 裁切框在界面中的坐标。
+    @State private var cropRectInView: CGRect? = nil
+    /// 初次检测得到的框中心（作为运动偏移的基准）。
+    @State private var baseBoxCenterInView: CGPoint? = nil
+    /// 实时显示的实心圆位置。
+    @State private var boxCenterInView: CGPoint? = nil
+    /// 记录当前界面中的 3:4 构图窗口。
+    @State private var compositionRectInView: CGRect = .zero
+    /// 缓存最近一次 3:4 裁剪后的像素缓冲，供调试使用。
+    @State private var lastCroppedPixelBuffer: CVPixelBuffer? = nil
+    /// 是否满足模板匹配阈值，用于对准提示。
+    @State private var isAligned: Bool = false
+    /// 是否展示保存成功的提示气泡。
     @State private var showSaveToast = false
 
     // 模板匹配追踪
+    /// 模板匹配器，实现相似度评估。
     private let templateMatcher = TemplateMatcher()
+    /// 相似度阈值，超过后触发对准状态。
     private let templateThreshold: Float = 0.84
+    /// 最近一次匹配的相似度。
     @State private var lastSimilarity: Float? = nil
+    /// 模板是否已经准备就绪。
     @State private var templateReady: Bool = false
-    @State private var detectionInProgress: Bool = false // 防止重复触发 Adacrop 推理
+    /// 是否正在进行 Adacrop 推理，防止重复调用。
+    @State private var detectionInProgress: Bool = false
     
     // 调试状态变量
+    /// 调试信息展示文案。
     @State private var debugMessage = "等待相机启动..."
-    @State private var showDebugInfo = false // 默认隐藏调试栏，由按钮控制
+    /// 默认隐藏调试栏，由按钮控制。
+    @State private var showDebugInfo = false
 
+    /// 主视图内容，包含相机预览、覆盖层以及底部控制栏。
     var body: some View {
         GeometryReader { geo in
             let compositionRect = ContentView.compositionRect(in: geo.size)
             let _ = updateCompositionRectIfNeeded(compositionRect) // 记录当前窗口对应的 3:4 区域，供运动偏移换算使用
 
             ZStack {
-                CameraPreviewView(session: camera.session)
+                Color.black
                     .ignoresSafeArea()
 
-                CompositionOverlayView(compositionRect: compositionRect,
-                                       cropRect: cropRectInView,
-                                       trackedPoint: boxCenterInView,
-                                       isAligned: isAligned)
+                CameraPreviewView(session: camera.session)
+                    .frame(width: compositionRect.width, height: compositionRect.height)
+                    .position(x: compositionRect.midX, y: compositionRect.midY)
+                    .clipped()
 
-                // 用户模式底部控制条（参考系统相机）
+                overlayLayer(for: compositionRect,
+                              canvasRect: CGRect(origin: .zero, size: geo.size))
+
+                // 用户模式底部控制条
                 VStack {
                     Spacer()
-                    HStack(spacing: 24) {
+                    HStack(spacing: 25) {
                         Button(action: {}) {
                             Image(systemName: "bolt.circle")
                                 .font(.system(size: 22, weight: .regular))
@@ -75,17 +98,17 @@ struct ContentView: View {
                         Spacer()
                         Button(action: { camera.capturePhoto() }) {
                             Circle()
-                                .strokeBorder(Color.white, lineWidth: 6)
+                                .strokeBorder(Color.white, lineWidth: 10)
                                 .frame(width: 78, height: 78)
                                 .overlay(Circle().fill(Color.white.opacity(0.15)))
                         }
+                        Spacer()
                         Button(action: { resetDetectionState() }) {
                             Image(systemName: "gobackward")
                                 .font(.system(size: 22, weight: .regular))
                                 .foregroundStyle(.white)
                                 .opacity(0.9)
                         } // 重新检测按钮：允许用户手动恢复 Adacrop 与模板状态
-                        Spacer()
                         Button(action: {}) {
                             Image(systemName: "arrow.triangle.2.circlepath.camera")
                                 .font(.system(size: 22, weight: .regular))
@@ -93,8 +116,8 @@ struct ContentView: View {
                                 .opacity(0.9)
                         }
                     }
-                    .padding(.horizontal, 28)
-                    .padding(.bottom, 26)
+                    .padding(.horizontal, 25)
+                    .padding(.bottom, 75)
                 }
             }
             .overlay(alignment: .top) {
@@ -111,7 +134,7 @@ struct ContentView: View {
                                 .font(.caption2)
                         }
                         
-                        Text("状态: \(debugMessage)")
+                        Text("状: \(debugMessage)")
                             .font(.caption2)
                         
                         VStack(alignment: .leading, spacing: 2) {
@@ -221,48 +244,62 @@ struct ContentView: View {
 } // <-- Add this closing brace to end the struct ContentView for iOS/tvOS
 
 extension ContentView {
+    /// 绘制遮罩、构图辅助线、模板框与追踪标记的覆盖层。
     @ViewBuilder
     private func overlayLayer(for compositionRect: CGRect, canvasRect: CGRect) -> some View {
         let focusColor: Color = isAligned ? .green : .white
 
+        // 将传入的 compositionRect 转换为相对于 canvasRect 的本地坐标系，
+        // 以避免父视图的 padding / safeArea 导致的坐标偏移不一致。
+        let localComposition = CGRect(x: compositionRect.minX - canvasRect.minX,
+                                      y: compositionRect.minY - canvasRect.minY,
+                                      width: compositionRect.width,
+                                      height: compositionRect.height)
+
         ZStack(alignment: .topLeading) {
             Canvas { ctx, _ in
                 var mask = Path()
-                mask.addRect(canvasRect)
-                mask.addRect(compositionRect)
+                mask.addRect(CGRect(origin: .zero, size: canvasRect.size))
+                mask.addRect(localComposition)
                 ctx.fill(mask,
                          with: .color(Color.black.opacity(0.35)),
                          style: FillStyle(eoFill: true))
-                ctx.stroke(Path(compositionRect),
+                ctx.stroke(Path(localComposition),
                            with: .color(Color.white.opacity(0.45)),
                            lineWidth: 1)
             }
 
+            // 三分线显示（在 canvas 的本地坐标系绘制）
             Path { path in
-                let thirdWidth = compositionRect.width / 3
-                let thirdHeight = compositionRect.height / 3
+                let thirdWidth = localComposition.width / 3
+                let thirdHeight = localComposition.height / 3
 
                 for i in 1..<3 {
-                    let x = compositionRect.minX + CGFloat(i) * thirdWidth
-                    path.move(to: CGPoint(x: x, y: compositionRect.minY))
-                    path.addLine(to: CGPoint(x: x, y: compositionRect.maxY))
+                    let x = localComposition.minX + CGFloat(i) * thirdWidth
+                    path.move(to: CGPoint(x: x, y: localComposition.minY))
+                    path.addLine(to: CGPoint(x: x, y: localComposition.maxY))
                 }
                 for i in 1..<3 {
-                    let y = compositionRect.minY + CGFloat(i) * thirdHeight
-                    path.move(to: CGPoint(x: compositionRect.minX, y: y))
-                    path.addLine(to: CGPoint(x: compositionRect.maxX, y: y))
+                    let y = localComposition.minY + CGFloat(i) * thirdHeight
+                    path.move(to: CGPoint(x: localComposition.minX, y: y))
+                    path.addLine(to: CGPoint(x: localComposition.maxX, y: y))
                 }
             }
             .stroke(Color.white.opacity(0.5), lineWidth: 1)
 
-
-
+            // 中心空心圆（使用本地坐标）
             Circle()
-                .strokeBorder(focusColor.opacity(0.95), lineWidth: 2)
+                .strokeBorder(focusColor.opacity(1), lineWidth: 4)
                 .frame(width: 32, height: 32)
-                .position(x: compositionRect.midX, y: compositionRect.midY)
+                .position(x: localComposition.midX, y: localComposition.midY)
 
-            if let rect = cropRectInView?.intersection(compositionRect), !rect.isNull, !rect.isEmpty {
+            // 裁切框临时显示逻辑（将全局 cropRectInView 转换为本地坐标）
+            if let rectGlobal = cropRectInView?.intersection(compositionRect),
+               !rectGlobal.isNull, !rectGlobal.isEmpty {
+                let rect = CGRect(x: rectGlobal.minX - canvasRect.minX,
+                                  y: rectGlobal.minY - canvasRect.minY,
+                                  width: rectGlobal.width,
+                                  height: rectGlobal.height)
                 let rounded = Path(roundedRect: rect, cornerRadius: 3)
                 rounded
                     .fill(Color.green.opacity(0.18))
@@ -270,19 +307,23 @@ extension ContentView {
                     .animation(.easeInOut(duration: 0.18), value: rect)
             }
 
-            if let point = boxCenterInView.map({ clamp(point: $0, to: compositionRect) }) {
+            // 追踪的空心圆（将 boxCenterInView 从全局坐标转换为本地坐标并限制在 localComposition）
+            if let pointGlobal = boxCenterInView {
+                let pointLocal = CGPoint(x: pointGlobal.x - canvasRect.minX,
+                                         y: pointGlobal.y - canvasRect.minY)
+                let clamped = clamp(point: pointLocal, to: localComposition)
                 Circle()
                     .fill(Color.white)
                     .frame(width: 12, height: 12)
-                    .position(point)
+                    .position(clamped)
                     .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
-                    .animation(.linear(duration: 0.05), value: point)
+                    .animation(.linear(duration: 0.05), value: clamped)
             }
         }
         .frame(width: canvasRect.width, height: canvasRect.height, alignment: .topLeading)
         .allowsHitTesting(false)
-        .ignoresSafeArea()
     }
+    /// 绑定摄像头图像流回调，串联裁剪、模板匹配与状态更新。
     private func setupCallbacks() {
         camera.onSampleBuffer = { (sample: CMSampleBuffer) in
             guard let rawPixel: CVPixelBuffer = CMSampleBufferGetImageBuffer(sample) else { return }
@@ -319,6 +360,7 @@ extension ContentView {
     }
 
     // 执行一次 Adacrop 推理，并在成功后锁定基准中心
+    /// 启动一次 Adacrop 推理，成功后锁定基准框并生成模板。
     private func detectCropOnce(using pixel: CVPixelBuffer,
                                 orientation: CGImagePropertyOrientation) {
         adacrop.predictCropBox(pixelBuffer: pixel, orientation: orientation) { crop in
@@ -374,6 +416,7 @@ extension ContentView {
     }
 
     // 将模板匹配的相似度转换为拍照触发逻辑
+    /// 根据模板匹配相似度判断是否触发拍照，并实时更新提示。
     private func evaluateTemplateSimilarity(with pixel: CVPixelBuffer) {
         if let sim = templateMatcher.similarityWithCenter(of: pixel) {
             DispatchQueue.main.async {
@@ -403,6 +446,7 @@ extension ContentView {
         }
     }
 
+    /// 将不同方向下的归一化矩形统一转换到预览坐标系。
     private func rotateNormalizedRect(_ rect: CGRect,
                                       for orientation: CGImagePropertyOrientation) -> CGRect {
         // 将不同拍摄方向的归一化坐标统一到预览层使用的“左上角为原点”的坐标系
@@ -430,6 +474,7 @@ extension ContentView {
     }
 
     // 监听几何变化，保证 3:4 窗口变化时重新换算陀螺仪偏移
+    /// 在构图窗口尺寸变化时刷新记录，并同步追踪点坐标。
     private func updateCompositionRectIfNeeded(_ rect: CGRect) {
         guard compositionRectInView != rect else { return }
         DispatchQueue.main.async {
@@ -439,6 +484,7 @@ extension ContentView {
     }
 
     // 将 MotionStabilityMonitor 提供的归一化偏移映射为界面像素
+    /// 将陀螺仪归一化偏移映射为界面像素，得到追踪点位置。
     private func updateBoxCenter(withNormalizedOffset offset: CGPoint) {
         guard let base = baseBoxCenterInView, compositionRectInView != .zero else { return }
         // 将归一化偏移量映射到实际像素：横向取构图宽度的 40%，纵向同理（并限制在窗口内）
@@ -453,11 +499,13 @@ extension ContentView {
         }
     }
 
+    /// 将点限制在指定矩形范围内。
     private func clamp(point: CGPoint, to rect: CGRect) -> CGPoint {
         CGPoint(x: min(max(point.x, rect.minX), rect.maxX),
                 y: min(max(point.y, rect.minY), rect.maxY))
     }
 
+    /// 将输入像素缓冲旋正并裁剪为 3:4 区域，返回新的像素缓冲。
     private func makeThreeByFourPixelBuffer(from pixelBuffer: CVPixelBuffer,
                                             orientation: CGImagePropertyOrientation) -> CVPixelBuffer? {
         // 先将原始图像旋转到“竖屏向上”的方向，保证后续 3:4 裁剪稳定
@@ -498,6 +546,7 @@ extension ContentView {
         return buffer
     }
 
+    /// 根据像素缓冲的宽高关系推断当前的图像朝向。
     private func pixelOrientation(for pixelBuffer: CVPixelBuffer) -> CGImagePropertyOrientation {
         // 根据宽高判断传感器当前的原始朝向，默认认为横向图像代表竖屏拍摄（右旋 90°）
         let width = CVPixelBufferGetWidth(pixelBuffer)
@@ -505,6 +554,7 @@ extension ContentView {
         return width > height ? .right : .up
     }
 
+    /// 重置模板匹配相关状态，等待下一轮检测。
     private func resetDetectionState() {
         templateReady = false
         isAligned = false
@@ -519,6 +569,7 @@ extension ContentView {
         debugMessage = "已重置检测，等待稳定..."
     }
 
+    /// 将归一化矩形按当前屏幕方向映射到构图窗口坐标系。
     private func rectInCompositionSpace(from rect: CGRect,
                                         orientation: CGImagePropertyOrientation) -> CGRect? {
         guard compositionRectInView != .zero else { return nil }
@@ -533,6 +584,7 @@ extension ContentView {
         return mapped.intersection(composition)
     }
 
+    /// 在给定屏幕尺寸下计算竖屏的 3:4 构图窗口区域。
     private static func compositionRect(in size: CGSize) -> CGRect {
         // 根据屏幕宽度计算 3:4 的可视窗口，并在竖直方向居中
         let width = size.width
@@ -540,20 +592,6 @@ extension ContentView {
         let height = min(size.height, targetHeight)
         let originY = (size.height - height) * 0.5
         return CGRect(x: 0, y: originY, width: width, height: height)
-    }
-}
-
-#if DEBUG
-#Preview {
-    ContentView()
-}
-#endif
-
-#else
-
-struct ContentView: View {
-    var body: some View {
-        Text("Unsupported Platform")
     }
 }
 
