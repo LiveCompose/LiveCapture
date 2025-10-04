@@ -52,17 +52,10 @@ struct ContentView: View {
                 CameraPreviewView(session: camera.session, provider: previewProvider)
                     .ignoresSafeArea()
 
-                GridOverlayView().ignoresSafeArea()
-
-                AspectMaskView().ignoresSafeArea()
-
-                // 中心十字线需要与 3:4 构图窗口对齐
-                CrosshairView(compositionRect: compositionRect)
-                    .tint(isAligned ? .green : .white)
-
-                OverlayView(cropRectInView: cropRectInView,
-                            boxCenter: boxCenterInView,
-                            compositionRect: compositionRect)
+                CompositionOverlayView(compositionRect: compositionRect,
+                                       cropRect: cropRectInView,
+                                       trackedPoint: boxCenterInView,
+                                       isAligned: isAligned)
 
                 // 用户模式底部控制条（参考系统相机）
                 VStack {
@@ -227,32 +220,6 @@ struct ContentView: View {
 }
 
 } // <-- Add this closing brace to end the struct ContentView for iOS/tvOS
-
-private struct CrosshairView: View {
-    var color: Color = .white
-    var compositionRect: CGRect
-
-    func tint(_ c: Color) -> CrosshairView { var v = self; v.color = c; return v }
-
-    var body: some View {
-        GeometryReader { _ in
-            let lineWidth: CGFloat = 2
-            let arm: CGFloat = 24
-            Path { path in
-                let center = CGPoint(x: compositionRect.midX, y: compositionRect.midY)
-                // 横线限定在 3:4 构图区域内部，避免出现尺寸错位
-                path.move(to: CGPoint(x: max(compositionRect.minX, center.x - arm), y: center.y))
-                path.addLine(to: CGPoint(x: min(compositionRect.maxX, center.x + arm), y: center.y))
-                // 竖线同样限定在构图窗口内部
-                path.move(to: CGPoint(x: center.x, y: max(compositionRect.minY, center.y - arm)))
-                path.addLine(to: CGPoint(x: center.x, y: min(compositionRect.maxY, center.y + arm)))
-            }
-            .strokedPath(.init(lineWidth: lineWidth, lineCap: .round))
-            .foregroundStyle(color.opacity(0.95))
-            .ignoresSafeArea()
-        }
-    }
-}
 
 extension ContentView {
     private func setupCallbacks() {
