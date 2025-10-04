@@ -22,7 +22,7 @@ struct ContentView: View {
     private let adacrop = AdacropModel()
     private let tracker = TrackingManager()
     @State private var cropRectInView: CGRect? = nil
-    @State private var trackedCenter: CGPoint? = nil
+    @State private var boxCenterInView: CGPoint? = nil
     @State private var isAligned: Bool = false
     @State private var showSaveToast = false
 
@@ -48,7 +48,7 @@ struct ContentView: View {
             // Center crosshair
             CrosshairView().tint(isAligned ? .green : .white)
 
-            OverlayView(cropRectInView: cropRectInView, trackedCenter: trackedCenter)
+            OverlayView(cropRectInView: cropRectInView, boxCenter: boxCenterInView)
 
             // 用户模式底部控制条（参考系统相机）
             if mode == .user {
@@ -118,7 +118,7 @@ struct ContentView: View {
                             HStack {
                                 Text("稳定性: \(motion.isStable ? "稳定" : "不稳定")")
                                 Spacer()
-                                if let center = trackedCenter {
+                                if let center = boxCenterInView {
                                     Text("跟踪: (\(Int(center.x)), \(Int(center.y)))")
                                 } else {
                                     Text("跟踪: 无")
@@ -259,9 +259,27 @@ extension ContentView {
                 DispatchQueue.main.async { self.debugMessage = "设备已稳定，开始识别目标区域..." }
                 self.adacrop.predictCropBox(pixelBuffer: pixel) { (crop: CropBox?) in
                     guard let crop else {
-                        DispatchQueue.main.async { self.debugMessage = "目标识别失败，等待重试..." }
+                        DispatchQueue.main.async {
+                            self.debugMessage = "目标识别失败，等待重试..."
+                            self.cropRectInView = nil
+                            self.boxCenterInView = nil
+                        }
+                        self.tracker.reset()
                         return
                     }
+
+                    DispatchQueue.main.async {
+                        if let layer = self.findPreviewLayer(),
+                           let rectInView = self.convertNormalizedRect(crop.rectInNormalizedImage, in: layer) {
+                            self.cropRectInView = rectInView
+                            self.boxCenterInView = CGPoint(x: rectInView.midX, y: rectInView.midY)
+                        } else {
+                            self.cropRectInView = nil
+                            self.boxCenterInView = nil
+                        }
+                    }
+
+                    self.tracker.startTracking(from: crop.rectInNormalizedImage, pixelBuffer: pixel)
                     // 生成模板：取检测框中心小块（带完成回调，避免竞态）
                     self.templateMatcher.setTemplate(from: pixel, normalizedRegion: crop.rectInNormalizedImage) { ok in
                         DispatchQueue.main.async {
@@ -269,10 +287,10 @@ extension ContentView {
                                 self.templateReady = true
                                 self.debugMessage = "模板已生成：\(crop.detectionType)，开始相似度匹配..."
                                 self.cropRectInView = nil
-                                self.trackedCenter = nil
                             } else {
                                 self.templateReady = false
                                 self.debugMessage = "模板生成失败，等待重试..."
+                                self.tracker.reset()
                             }
                         }
                     }
@@ -306,25 +324,27 @@ extension ContentView {
                     }
                 }
             }
+
+            self.tracker.track(pixelBuffer: pixel)
         }
 
-        // 保留 tracker 回调但在模板模式下不会触发
+        // Vision 跟踪回调：持续更新裁切框与追踪圆心
         self.tracker.onUpdate = { (box: CGRect, confidence: Float) in
             DispatchQueue.main.async {
                 guard let layer = self.findPreviewLayer(), let rectInView = self.convertNormalizedRect(box, in: layer) else {
                     self.cropRectInView = nil
-                    self.trackedCenter = nil
+                    self.boxCenterInView = nil
                     return
                 }
                 self.cropRectInView = rectInView
-                self.trackedCenter = CGPoint(x: rectInView.midX, y: rectInView.midY)
+                self.boxCenterInView = CGPoint(x: rectInView.midX, y: rectInView.midY)
             }
         }
 
         self.tracker.onTrackingLost = {
             DispatchQueue.main.async {
                 self.cropRectInView = nil
-                self.trackedCenter = nil
+                self.boxCenterInView = nil
             }
         }
     }
@@ -344,15 +364,8 @@ extension ContentView {
         return layer.layerRectConverted(fromMetadataOutputRect: metadataRect)
     }
 
-    private func startTracking(with crop: CropBox, pixelBuffer: CVPixelBuffer) {
-        // 旧的基于 Vision 的跟踪入口：改为生成模板
-        self.templateMatcher.setTemplate(from: pixelBuffer, normalizedRegion: crop.rectInNormalizedImage)
-        self.templateReady = true
-        self.debugMessage = "模板已生成：\(crop.detectionType)，开始相似度匹配..."
-    }
-
     private func evaluateAlignment() {
-        guard let center = self.trackedCenter else { 
+        guard let center = self.boxCenterInView else { 
             self.isAligned = false
             return 
         }
