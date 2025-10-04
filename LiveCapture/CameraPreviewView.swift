@@ -13,19 +13,16 @@ import UIKit
 
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
-    var provider: PreviewLayerProvider? = nil
 
     func makeUIView(context: Context) -> PreviewUIView {
         let view = PreviewUIView()
         view.videoPreviewLayer.session = session
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
-        provider?.layer = view.videoPreviewLayer
         return view
     }
 
     func updateUIView(_ uiView: PreviewUIView, context: Context) {
         uiView.videoPreviewLayer.session = session
-        provider?.layer = uiView.videoPreviewLayer
     }
 }
 
@@ -36,11 +33,8 @@ final class PreviewUIView: UIView {
 
 #else
 
-typealias PreviewLayerProvider = AnyObject
-
 struct CameraPreviewView: View {
     let session: AVCaptureSession
-    var provider: PreviewLayerProvider? = nil
 
     var body: some View {
         Color.black
@@ -54,5 +48,3 @@ struct CameraPreviewView: View {
 }
 
 #endif
-
-

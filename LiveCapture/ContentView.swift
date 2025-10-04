@@ -20,7 +20,6 @@ import ImageIO
 struct ContentView: View {
     @StateObject private var camera = CameraManager() // 相机控制器（保持为 Observed 对象）
     @StateObject private var motion = MotionStabilityMonitor() // 设备运动监控（用于稳定性与方向转换）
-    @StateObject private var previewProvider = PreviewLayerProvider() // 暴露预览层，方便做坐标转换
     private let adacrop = AdacropModel() // Adacrop 推理模型
     private static let ciContext = CIContext() // CoreImage 上下文，用于像素裁剪（3:4）
 
@@ -49,7 +48,7 @@ struct ContentView: View {
             let _ = updateCompositionRectIfNeeded(compositionRect) // 记录当前窗口对应的 3:4 区域，供运动偏移换算使用
 
             ZStack {
-                CameraPreviewView(session: camera.session, provider: previewProvider)
+                CameraPreviewView(session: camera.session)
                     .ignoresSafeArea()
 
                 CompositionOverlayView(compositionRect: compositionRect,
@@ -275,10 +274,8 @@ extension ContentView {
             }
 
             DispatchQueue.main.async {
-                if let layer = self.findPreviewLayer(),
-                   let rectInView = self.convertNormalizedRect(crop.rectInNormalizedImage,
-                                                              in: layer,
-                                                              orientation: orientation) {
+                if let rectInView = self.rectInCompositionSpace(from: crop.rectInNormalizedImage,
+                                                                orientation: orientation) {
                     self.cropRectInView = rectInView
                     let center = CGPoint(x: rectInView.midX, y: rectInView.midY)
                     self.baseBoxCenterInView = center
@@ -341,24 +338,6 @@ extension ContentView {
                 self.isAligned = false
             }
         }
-    }
-
-    private func findPreviewLayer() -> AVCaptureVideoPreviewLayer? {
-        previewProvider.layer
-    }
-
-    private func convertNormalizedRect(_ rect: CGRect,
-                                       in layer: AVCaptureVideoPreviewLayer,
-                                       orientation: CGImagePropertyOrientation) -> CGRect? {
-        // 先根据图像方向将 Vision 坐标旋转回预览层坐标系
-        let rotated = rotateNormalizedRect(rect, for: orientation)
-        let metadataRect = CGRect(
-            x: rotated.origin.x,
-            y: 1.0 - rotated.origin.y - rotated.size.height,
-            width: rotated.size.width,
-            height: rotated.size.height
-        )
-        return layer.layerRectConverted(fromMetadataOutputRect: metadataRect)
     }
 
     private func rotateNormalizedRect(_ rect: CGRect,
@@ -471,10 +450,23 @@ extension ContentView {
         baseBoxCenterInView = nil
         boxCenterInView = nil
         lastCroppedPixelBuffer = nil
-        previewProvider.layer?.setNeedsDisplay()
         motion.resetReferenceAttitude() // 恢复陀螺仪偏移参考
         detectionInProgress = false
         debugMessage = "已重置检测，等待稳定..."
+    }
+
+    private func rectInCompositionSpace(from rect: CGRect,
+                                        orientation: CGImagePropertyOrientation) -> CGRect? {
+        guard compositionRectInView != .zero else { return nil }
+        let composition = compositionRectInView
+        let rotated = rotateNormalizedRect(rect, for: orientation)
+        let x = composition.minX + rotated.origin.x * composition.width
+        let y = composition.minY + (1.0 - rotated.origin.y - rotated.size.height) * composition.height
+        let width = rotated.size.width * composition.width
+        let height = rotated.size.height * composition.height
+        let mapped = CGRect(x: x, y: y, width: width, height: height)
+        guard mapped.intersects(composition) else { return nil }
+        return mapped.intersection(composition)
     }
 
     private static func compositionRect(in size: CGSize) -> CGRect {
