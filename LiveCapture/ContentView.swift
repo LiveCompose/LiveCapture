@@ -221,6 +221,68 @@ struct ContentView: View {
 } // <-- Add this closing brace to end the struct ContentView for iOS/tvOS
 
 extension ContentView {
+    @ViewBuilder
+    private func overlayLayer(for compositionRect: CGRect, canvasRect: CGRect) -> some View {
+        let focusColor: Color = isAligned ? .green : .white
+
+        ZStack(alignment: .topLeading) {
+            Canvas { ctx, _ in
+                var mask = Path()
+                mask.addRect(canvasRect)
+                mask.addRect(compositionRect)
+                ctx.fill(mask,
+                         with: .color(Color.black.opacity(0.35)),
+                         style: FillStyle(eoFill: true))
+                ctx.stroke(Path(compositionRect),
+                           with: .color(Color.white.opacity(0.45)),
+                           lineWidth: 1)
+            }
+
+            Path { path in
+                let thirdWidth = compositionRect.width / 3
+                let thirdHeight = compositionRect.height / 3
+
+                for i in 1..<3 {
+                    let x = compositionRect.minX + CGFloat(i) * thirdWidth
+                    path.move(to: CGPoint(x: x, y: compositionRect.minY))
+                    path.addLine(to: CGPoint(x: x, y: compositionRect.maxY))
+                }
+                for i in 1..<3 {
+                    let y = compositionRect.minY + CGFloat(i) * thirdHeight
+                    path.move(to: CGPoint(x: compositionRect.minX, y: y))
+                    path.addLine(to: CGPoint(x: compositionRect.maxX, y: y))
+                }
+            }
+            .stroke(Color.white.opacity(0.5), lineWidth: 1)
+
+
+
+            Circle()
+                .strokeBorder(focusColor.opacity(0.95), lineWidth: 2)
+                .frame(width: 32, height: 32)
+                .position(x: compositionRect.midX, y: compositionRect.midY)
+
+            if let rect = cropRectInView?.intersection(compositionRect), !rect.isNull, !rect.isEmpty {
+                let rounded = Path(roundedRect: rect, cornerRadius: 3)
+                rounded
+                    .fill(Color.green.opacity(0.18))
+                    .overlay(rounded.stroke(Color.green.opacity(0.85), lineWidth: 2))
+                    .animation(.easeInOut(duration: 0.18), value: rect)
+            }
+
+            if let point = boxCenterInView.map({ clamp(point: $0, to: compositionRect) }) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 12, height: 12)
+                    .position(point)
+                    .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
+                    .animation(.linear(duration: 0.05), value: point)
+            }
+        }
+        .frame(width: canvasRect.width, height: canvasRect.height, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .ignoresSafeArea()
+    }
     private func setupCallbacks() {
         camera.onSampleBuffer = { (sample: CMSampleBuffer) in
             guard let rawPixel: CVPixelBuffer = CMSampleBufferGetImageBuffer(sample) else { return }
