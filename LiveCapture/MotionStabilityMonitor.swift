@@ -224,18 +224,4 @@ final class MotionStabilityMonitor: ObservableObject {
     }
 }
 
-#else
-
-final class MotionStabilityMonitor: ObservableObject {
-    @Published var isStable: Bool = false
-    @Published var debugInfo: String = "不支持的平台"
-
-    var windowSeconds: TimeInterval = 0.5
-    var accelerationStdThreshold: Double = 0.15
-    var gyroStdThreshold: Double = 0.10
-
-    func start() {}
-    func stop() { DispatchQueue.main.async { self.isStable = false } }
-}
-
 #endif

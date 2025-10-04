@@ -5,13 +5,13 @@
 
 import SwiftUI
 
-#if os(iOS) || os(tvOS)
+#if os(iOS)
 
 enum AppMode: String, CaseIterable, Identifiable {
     case user
     var id: String { rawValue }
-    var title: String { "拍摄模式" }
-    var description: String { "默认界面，可通过右下角按钮切换调试信息。" }
+    var title: String { "点击进入拍摄" }
+    var description: String { "原神启动！" }
 }
 
 struct MainView: View {

@@ -18,19 +18,40 @@ struct CameraPreviewView: UIViewRepresentable {
         let view = PreviewUIView()
         view.videoPreviewLayer.session = session
         view.videoPreviewLayer.videoGravity = .resizeAspectFill
-        view.videoPreviewLayer.connection?.applyBestVideoStabilizationMode()
+        applyStabilizationIfAvailable(on: view.videoPreviewLayer.connection)
         return view
     }
 
     func updateUIView(_ uiView: PreviewUIView, context: Context) {
         uiView.videoPreviewLayer.session = session
-        uiView.videoPreviewLayer.connection?.applyBestVideoStabilizationMode()
+        applyStabilizationIfAvailable(on: uiView.videoPreviewLayer.connection)
     }
 }
 
 final class PreviewUIView: UIView {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
     var videoPreviewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+}
+
+private func applyStabilizationIfAvailable(on connection: AVCaptureConnection?) {
+    guard let connection, connection.isVideoStabilizationSupported else { return }
+    #if os(iOS)
+    if #available(iOS 13.0, *), connection.isVideoStabilizationModeSupported(.cinematicExtended) {
+        connection.preferredVideoStabilizationMode = .cinematicExtended
+        return
+    }
+    if #available(iOS 13.0, *), connection.isVideoStabilizationModeSupported(.cinematic) {
+        connection.preferredVideoStabilizationMode = .cinematic
+        return
+    }
+    #endif
+    if connection.isVideoStabilizationModeSupported(.auto) {
+        connection.preferredVideoStabilizationMode = .auto
+        return
+    }
+    if connection.isVideoStabilizationModeSupported(.standard) {
+        connection.preferredVideoStabilizationMode = .standard
+    }
 }
 
 #else

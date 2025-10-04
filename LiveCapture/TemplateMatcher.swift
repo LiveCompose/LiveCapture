@@ -24,9 +24,9 @@ final class TemplateMatcher {
 
     // Public config
     // 模板方块（来自裁切框中心）的边长比例（相对裁切框 min(width,height)）——较大更稳健
-    var templateScaleInRegion: CGFloat = 0.15
+    var templateScaleInRegion: CGFloat = 0.1
     // 探测方块（来自画面中心 3:4 区域）的边长比例（相对 3:4 矩形 min(width,height)）——较小更容易匹配
-    var probeScaleInComp: CGFloat = 0.12
+    var probeScaleInComp: CGFloat = 0.1
 
     var hasTemplate: Bool { queue.sync { templateVector != nil } }
 

@@ -15,7 +15,7 @@ import CoreImage
 import ImageIO
 
 /// A description
-#if os(iOS) || os(tvOS)
+#if os(iOS)
 
 struct ContentView: View {
     @StateObject private var camera = CameraManager() // 相机控制器（保持为 Observed 对象）

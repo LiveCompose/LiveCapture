@@ -7,20 +7,12 @@
 
 import SwiftUI
 
-#if os(iOS) || os(tvOS)
+#if os(iOS)
 @main
 struct LiveCaptureApp: App {
     var body: some Scene {
         WindowGroup {
             MainView()
-        }
-    }
-}
-#else
-struct LiveCaptureApp: App {
-    var body: some Scene {
-        WindowGroup {
-            Text("Unsupported Platform")
         }
     }
 }

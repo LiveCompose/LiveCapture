@@ -9,9 +9,40 @@ import CoreML
 import AVFoundation
 import ImageIO
 
+#if os(iOS)
+
 struct CropBox {
     let rectInNormalizedImage: CGRect // origin at bottom-left in Vision coordinates
     let detectionType: String         // 用于调试，说明使用了哪种检测方法
+}
+
+final class UniformRectSmoother {
+    private let response: CGFloat
+    private var lastRect: CGRect?
+
+    init(response: CGFloat) {
+        self.response = response
+        self.lastRect = nil
+    }
+
+    func filter(_ rect: CGRect) -> CGRect {
+        guard let last = lastRect else {
+            lastRect = rect
+            return rect
+        }
+        let smoothed = CGRect(
+            x: last.origin.x + response * (rect.origin.x - last.origin.x),
+            y: last.origin.y + response * (rect.origin.y - last.origin.y),
+            width: last.size.width + response * (rect.size.width - last.size.width),
+            height: last.size.height + response * (rect.size.height - last.size.height)
+        )
+        lastRect = smoothed
+        return smoothed
+    }
+
+    func reset() {
+        lastRect = nil
+    }
 }
 
 final class AdacropModel {
@@ -346,3 +377,5 @@ final class AdacropModel {
         return CGRect(x: 0.5 - w/2, y: 0.5 - h/2, width: w, height: h)
     }
 }
+
+#endif

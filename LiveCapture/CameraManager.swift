@@ -12,6 +12,8 @@ import Photos
 import CoreImage
 import ImageIO
 
+#if os(iOS)
+
 final class CameraManager: NSObject, ObservableObject {
     let objectWillChange: PassthroughSubject<Void, Never> = PassthroughSubject<Void, Never>()
     enum CameraError: Error {
@@ -108,7 +110,7 @@ final class CameraManager: NSObject, ObservableObject {
                 if connection.isVideoRotationAngleSupported(90) {
                     connection.videoRotationAngle = 90
                 }
-                connection.applyBestVideoStabilizationMode()
+                configureStabilization(for: connection)
             }
         } else {
             throw CameraError.cannotAddOutput
@@ -193,6 +195,27 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
 }
 
 private extension CameraManager {
+    func configureStabilization(for connection: AVCaptureConnection) {
+        guard connection.isVideoStabilizationSupported else { return }
+        #if os(iOS)
+        if #available(iOS 13.0, *), connection.isVideoStabilizationModeSupported(.cinematicExtended) {
+            connection.preferredVideoStabilizationMode = .cinematicExtended
+            return
+        }
+        if #available(iOS 13.0, *), connection.isVideoStabilizationModeSupported(.cinematic) {
+            connection.preferredVideoStabilizationMode = .cinematic
+            return
+        }
+        #endif
+        if connection.isVideoStabilizationModeSupported(.auto) {
+            connection.preferredVideoStabilizationMode = .auto
+            return
+        }
+        if connection.isVideoStabilizationModeSupported(.standard) {
+            connection.preferredVideoStabilizationMode = .standard
+        }
+    }
+
     func processPhotoData(photo: AVCapturePhoto, originalData: Data) -> Data? {
         // 使用原始 pixelBuffer 进行居中裁剪，保证最终照片为 3:4
         guard let pixelBuffer = photo.pixelBuffer,
@@ -259,3 +282,5 @@ private extension CameraManager {
         return .right
     }
 }
+
+#endif
