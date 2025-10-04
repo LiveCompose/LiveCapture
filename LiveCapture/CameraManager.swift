@@ -9,6 +9,8 @@ import Foundation
 import Combine
 import AVFoundation
 import Photos
+import CoreImage
+import ImageIO
 
 final class CameraManager: NSObject, ObservableObject {
     let objectWillChange: PassthroughSubject<Void, Never> = PassthroughSubject<Void, Never>()
@@ -30,6 +32,7 @@ final class CameraManager: NSObject, ObservableObject {
 
     private let photoOutput: AVCapturePhotoOutput = AVCapturePhotoOutput()
     private let videoOutput: AVCaptureVideoDataOutput = AVCaptureVideoDataOutput()
+    private let photoContext = CIContext() // 用于将原始照片裁剪为 3:4，并重新编码为 JPEG
 
     // Called on videoOutputQueue
     var onSampleBuffer: ((CMSampleBuffer) -> Void)?
@@ -167,7 +170,12 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
             DispatchQueue.main.async { self.lastPhotoSaved = false }
             return
         }
-        savePhotoDataToLibrary(data)
+        // 优先生成 3:4 裁剪后的 JPEG，失败时退回原始数据
+        if let processed = processPhotoData(photo: photo, originalData: data) {
+            savePhotoDataToLibrary(processed)
+        } else {
+            savePhotoDataToLibrary(data)
+        }
     }
 }
 
@@ -180,4 +188,70 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
 }
 
+private extension CameraManager {
+    func processPhotoData(photo: AVCapturePhoto, originalData: Data) -> Data? {
+        // 使用原始 pixelBuffer 进行居中裁剪，保证最终照片为 3:4
+        guard let pixelBuffer = photo.pixelBuffer,
+              let croppedBuffer = cropPixelBufferToThreeByFour(pixelBuffer,
+                                                               orientation: photoOrientation(from: photo)),
+              let jpegData = jpegData(from: croppedBuffer) else {
+            return nil
+        }
+        return jpegData
+    }
 
+    func cropPixelBufferToThreeByFour(_ pixelBuffer: CVPixelBuffer,
+                                      orientation: CGImagePropertyOrientation) -> CVPixelBuffer? {
+        // 先旋正，再按照 3:4 长宽比从中心裁剪
+        let oriented = CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation)
+        let extent = oriented.extent
+        let desiredAspect: CGFloat = 3.0 / 4.0
+        var cropRect = extent
+        let currentAspect = extent.width / extent.height
+
+        if currentAspect > desiredAspect {
+            let newWidth = extent.height * desiredAspect
+            cropRect.origin.x = extent.midX - newWidth * 0.5
+            cropRect.size.width = newWidth
+        } else if currentAspect < desiredAspect {
+            let newHeight = extent.width / desiredAspect
+            cropRect.origin.y = extent.midY - newHeight * 0.5
+            cropRect.size.height = newHeight
+        }
+
+        let cropped = oriented.cropped(to: cropRect)
+
+        var output: CVPixelBuffer?
+        let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
+        let attributes: [String: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey as String: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+        ]
+
+        let status = CVPixelBufferCreate(kCFAllocatorDefault,
+                                         Int(cropRect.width),
+                                         Int(cropRect.height),
+                                         pixelFormat,
+                                         attributes as CFDictionary,
+                                         &output)
+        guard status == kCVReturnSuccess, let buffer = output else { return nil }
+
+        photoContext.render(cropped, to: buffer)
+        return buffer
+    }
+
+    func jpegData(from pixelBuffer: CVPixelBuffer) -> Data? {
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        return photoContext.jpegRepresentation(of: ciImage, colorSpace: colorSpace, options: [:])
+    }
+
+    func photoOrientation(from photo: AVCapturePhoto) -> CGImagePropertyOrientation {
+        // 如果 metadata 中缺失方向，则默认按照竖屏进行处理
+        if let value = photo.metadata[kCGImagePropertyOrientation as String] as? UInt32,
+           let orientation = CGImagePropertyOrientation(rawValue: value) {
+            return orientation
+        }
+        return .right
+    }
+}

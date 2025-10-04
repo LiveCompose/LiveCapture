@@ -7,6 +7,7 @@ import Foundation
 import Vision
 import CoreML
 import AVFoundation
+import ImageIO
 
 struct CropBox {
     let rectInNormalizedImage: CGRect // origin at bottom-left in Vision coordinates
@@ -20,14 +21,17 @@ final class AdacropModel {
         // 简化初始化，不再需要模型文件
     }
 
-    func predictCropBox(pixelBuffer: CVPixelBuffer, completion: @escaping (CropBox?) -> Void) {
+    func predictCropBox(pixelBuffer: CVPixelBuffer,
+                        orientation: CGImagePropertyOrientation,
+                        completion: @escaping (CropBox?) -> Void) {
+        // orientation 用于保证 VNRequest 的坐标系与 UI 显示保持一致
         handlerQueue.async {
-            if let faceRect = self.findLargestFaceRect(in: pixelBuffer) {
+            if let faceRect = self.findLargestFaceRect(in: pixelBuffer, orientation: orientation) {
                 let rect3x4 = self.expandToAspect3x4(covering: faceRect)
                 completion(CropBox(rectInNormalizedImage: rect3x4, detectionType: "人脸优先(3:4)"))
                 return
             }
-            if let saliency = self.generateAttentionSaliency(in: pixelBuffer) {
+            if let saliency = self.generateAttentionSaliency(in: pixelBuffer, orientation: orientation) {
                 let rect3x4 = self.bestRectFromSaliency3x4(saliency)
                 completion(CropBox(rectInNormalizedImage: rect3x4, detectionType: "显著性(3:4)"))
                 return
@@ -39,9 +43,10 @@ final class AdacropModel {
     }
     
     // MARK: - Face first
-    private func findLargestFaceRect(in pixelBuffer: CVPixelBuffer) -> CGRect? {
+    private func findLargestFaceRect(in pixelBuffer: CVPixelBuffer,
+                                     orientation: CGImagePropertyOrientation) -> CGRect? {
         let request = VNDetectFaceRectanglesRequest()
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation) // 保持与外部裁剪后的图像方向一致
         do {
             try handler.perform([request])
             if let faces = request.results, !faces.isEmpty {
@@ -65,9 +70,10 @@ final class AdacropModel {
     }
 
     // MARK: - Saliency
-    private func generateAttentionSaliency(in pixelBuffer: CVPixelBuffer) -> VNSaliencyImageObservation? {
+    private func generateAttentionSaliency(in pixelBuffer: CVPixelBuffer,
+                                           orientation: CGImagePropertyOrientation) -> VNSaliencyImageObservation? {
         let request = VNGenerateAttentionBasedSaliencyImageRequest()
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation) // 显著性检测同样需要正确的方向信息
         do {
             try handler.perform([request])
             return request.results?.first as? VNSaliencyImageObservation
@@ -195,5 +201,3 @@ final class AdacropModel {
         return CGRect(x: 0.5 - w/2, y: 0.5 - h/2, width: w, height: h)
     }
 }
-
-

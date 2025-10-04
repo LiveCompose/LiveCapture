@@ -11,19 +11,26 @@ import UIKit
 #endif
 import AVFoundation
 import Vision
+import CoreImage
+import ImageIO
 
+/// A description
 #if os(iOS) || os(tvOS)
 
 struct ContentView: View {
     var mode: AppMode = .user
-    @StateObject private var camera = CameraManager()
-    @StateObject private var motion = MotionStabilityMonitor()
-    @StateObject private var previewProvider = PreviewLayerProvider()
-    private let adacrop = AdacropModel()
-    private let tracker = TrackingManager()
-    @State private var cropRectInView: CGRect? = nil
-    @State private var boxCenterInView: CGPoint? = nil
-    @State private var isAligned: Bool = false
+    @StateObject private var camera = CameraManager() // 相机控制器（保持为 Observed 对象）
+    @StateObject private var motion = MotionStabilityMonitor() // 设备运动监控（用于稳定性与方向转换）
+    @StateObject private var previewProvider = PreviewLayerProvider() // 暴露预览层，方便做坐标转换
+    private let adacrop = AdacropModel() // Adacrop 推理模型
+    private static let ciContext = CIContext() // CoreImage 上下文，用于像素裁剪（3:4）
+
+    @State private var cropRectInView: CGRect? = nil // 当前 3:4 裁切框在界面中的坐标
+    @State private var baseBoxCenterInView: CGPoint? = nil // 初次检测得到的框中心（作为运动偏移的基准）
+    @State private var boxCenterInView: CGPoint? = nil // 实时显示的实心圆位置
+    @State private var compositionRectInView: CGRect = .zero // 记录当前界面中的 3:4 构图窗口
+    @State private var lastCroppedPixelBuffer: CVPixelBuffer? = nil // 缓存最近一次 3:4 裁剪后的像素缓冲，供调试显示
+    @State private var isAligned: Bool = false // 是否满足模板匹配阈值，用于对准提示
     @State private var showSaveToast = false
 
     // 模板匹配追踪
@@ -31,74 +38,90 @@ struct ContentView: View {
     private let templateThreshold: Float = 0.84
     @State private var lastSimilarity: Float? = nil
     @State private var templateReady: Bool = false
+    @State private var detectionInProgress: Bool = false // 防止重复触发 Adacrop 推理
     
     // 调试状态变量
     @State private var debugMessage = "等待相机启动..."
     @State private var showDebugInfo = true
 
     var body: some View {
-        ZStack {
-            CameraPreviewView(session: camera.session, provider: previewProvider)
-                .ignoresSafeArea()
-            if mode == .user {
-                GridOverlayView().ignoresSafeArea()
-            }
-            AspectMaskView().ignoresSafeArea()
+        GeometryReader { geo in
+            let compositionRect = ContentView.compositionRect(in: geo.size)
+            let _ = updateCompositionRectIfNeeded(compositionRect) // 记录当前窗口对应的 3:4 区域，供运动偏移换算使用
 
-            // Center crosshair
-            CrosshairView().tint(isAligned ? .green : .white)
+            ZStack {
+                CameraPreviewView(session: camera.session, provider: previewProvider)
+                    .ignoresSafeArea()
 
-            OverlayView(cropRectInView: cropRectInView, boxCenter: boxCenterInView)
+                if mode == .user {
+                    GridOverlayView().ignoresSafeArea()
+                }
 
-            // 用户模式底部控制条（参考系统相机）
-            if mode == .user {
-                VStack {
-                    Spacer()
-                    HStack(spacing: 24) {
-                        Button(action: {}) {
-                            Image(systemName: "bolt.circle")
-                                .font(.system(size: 22, weight: .regular))
-                                .foregroundStyle(.white)
-                                .opacity(0.9)
-                        }
+                AspectMaskView().ignoresSafeArea()
+
+                // 中心十字线需要与 3:4 构图窗口对齐
+                CrosshairView(compositionRect: compositionRect)
+                    .tint(isAligned ? .green : .white)
+
+                OverlayView(cropRectInView: cropRectInView,
+                            boxCenter: boxCenterInView,
+                            compositionRect: compositionRect)
+
+                // 用户模式底部控制条（参考系统相机）
+                if mode == .user {
+                    VStack {
                         Spacer()
-                        Button(action: { camera.capturePhoto() }) {
-                            Circle()
-                                .strokeBorder(Color.white, lineWidth: 6)
-                                .frame(width: 78, height: 78)
-                                .overlay(Circle().fill(Color.white.opacity(0.15)))
+                        HStack(spacing: 24) {
+                            Button(action: {}) {
+                                Image(systemName: "bolt.circle")
+                                    .font(.system(size: 22, weight: .regular))
+                                    .foregroundStyle(.white)
+                                    .opacity(0.9)
+                            }
+                            Spacer()
+                            Button(action: { camera.capturePhoto() }) {
+                                Circle()
+                                    .strokeBorder(Color.white, lineWidth: 6)
+                                    .frame(width: 78, height: 78)
+                                    .overlay(Circle().fill(Color.white.opacity(0.15)))
+                            }
+                            Button(action: { resetDetectionState() }) {
+                                Image(systemName: "gobackward")
+                                    .font(.system(size: 22, weight: .regular))
+                                    .foregroundStyle(.white)
+                                    .opacity(0.9)
+                            } // 重新检测按钮：允许用户手动恢复 Adacrop 与模板状态
+                            Spacer()
+                            Button(action: {}) {
+                                Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                    .font(.system(size: 22, weight: .regular))
+                                    .foregroundStyle(.white)
+                                    .opacity(0.9)
+                            }
                         }
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 26)
+                    }
+                } else {
+                    // 兼容原来的居中快门用于调试
+                    VStack {
                         Spacer()
-                        Button(action: {}) {
-                            Image(systemName: "arrow.triangle.2.circlepath.camera")
-                                .font(.system(size: 22, weight: .regular))
-                                .foregroundStyle(.white)
-                                .opacity(0.9)
+                        HStack {
+                            Spacer()
+                            Button(action: { camera.capturePhoto() }) {
+                                Circle()
+                                    .strokeBorder(Color.white, lineWidth: 6)
+                                    .frame(width: 72, height: 72)
+                                    .overlay(Circle().fill(Color.white.opacity(0.15)))
+                            }
+                            .padding(.bottom, 32)
+                            Spacer()
                         }
                     }
-                    .padding(.horizontal, 28)
-                    .padding(.bottom, 26)
-                }
-            } else {
-                // 兼容原来的居中快门用于调试
-                VStack {
-                    Spacer()
-                    HStack {
-                        Spacer()
-                        Button(action: { camera.capturePhoto() }) {
-                            Circle()
-                                .strokeBorder(Color.white, lineWidth: 6)
-                                .frame(width: 72, height: 72)
-                                .overlay(Circle().fill(Color.white.opacity(0.15)))
-                        }
-                        .padding(.bottom, 32)
-                        Spacer()
-                    }
                 }
             }
-        }
-        .overlay(alignment: .top) {
-            VStack(spacing: 8) {
+            .overlay(alignment: .top) {
+                VStack(spacing: 8) {
                 // 调试信息显示
                 if showDebugInfo && mode == .debug {
                     VStack(alignment: .leading, spacing: 4) {
@@ -156,7 +179,8 @@ struct ContentView: View {
                                 .border(Color.white.opacity(0.8), width: 1)
                                 .overlay(Text("T").font(.caption2).padding(2), alignment: .topLeading)
                         }
-                        if let pixel = camera.lastPixelBuffer, let centerImg = self.templateMatcher.centerUIImage(from: pixel) {
+                        if let pixel = lastCroppedPixelBuffer,
+                           let centerImg = self.templateMatcher.centerUIImage(from: pixel) {
                             Image(uiImage: centerImg)
                                 .resizable()
                                 .interpolation(.none)
@@ -185,6 +209,9 @@ struct ContentView: View {
                 }
             }
             .padding(.top, 24)
+        }
+        .onReceive(motion.$screenOffsetNormalized) { offset in
+            updateBoxCenter(withNormalizedOffset: offset) // 将 3D 陀螺仪偏移转换为 2D 像素偏移
         }
         .onAppear {
             debugMessage = "正在启动相机..."
@@ -220,23 +247,28 @@ struct ContentView: View {
     }
 }
 
+} // <-- Add this closing brace to end the struct ContentView for iOS/tvOS
+
 private struct CrosshairView: View {
     var color: Color = .white
-    func tint(_ c: Color) -> some View { var v = self; v.color = c; return v }
+    var compositionRect: CGRect
+
+    func tint(_ c: Color) -> CrosshairView { var v = self; v.color = c; return v }
+
     var body: some View {
-        GeometryReader { geo in
-            let size: CGFloat = 24
-            let line: CGFloat = 2
+        GeometryReader { _ in
+            let lineWidth: CGFloat = 2
+            let arm: CGFloat = 24
             Path { path in
-                let center = CGPoint(x: geo.size.width/2, y: geo.size.height/2)
-                // horizontal
-                path.move(to: CGPoint(x: center.x - size, y: center.y))
-                path.addLine(to: CGPoint(x: center.x + size, y: center.y))
-                // vertical
-                path.move(to: CGPoint(x: center.x, y: center.y - size))
-                path.addLine(to: CGPoint(x: center.x, y: center.y + size))
+                let center = CGPoint(x: compositionRect.midX, y: compositionRect.midY)
+                // 横线限定在 3:4 构图区域内部，避免出现尺寸错位
+                path.move(to: CGPoint(x: max(compositionRect.minX, center.x - arm), y: center.y))
+                path.addLine(to: CGPoint(x: min(compositionRect.maxX, center.x + arm), y: center.y))
+                // 竖线同样限定在构图窗口内部
+                path.move(to: CGPoint(x: center.x, y: max(compositionRect.minY, center.y - arm)))
+                path.addLine(to: CGPoint(x: center.x, y: min(compositionRect.maxY, center.y + arm)))
             }
-            .strokedPath(.init(lineWidth: line, lineCap: .round))
+            .strokedPath(.init(lineWidth: lineWidth, lineCap: .round))
             .foregroundStyle(color.opacity(0.95))
             .ignoresSafeArea()
         }
@@ -246,105 +278,121 @@ private struct CrosshairView: View {
 extension ContentView {
     private func setupCallbacks() {
         camera.onSampleBuffer = { (sample: CMSampleBuffer) in
-            guard self.motion.isStable,
-                  let pixel: CVPixelBuffer = CMSampleBufferGetImageBuffer(sample) else {
+            guard let rawPixel: CVPixelBuffer = CMSampleBufferGetImageBuffer(sample) else { return }
+            let orientation = self.pixelOrientation(for: rawPixel) // 依据像素缓冲尺寸推导当前方向
+
+            guard self.motion.isStable else {
                 DispatchQueue.main.async {
                     self.debugMessage = "等待设备稳定..."
                 }
                 return
             }
 
-            if !self.templateReady {
-                // 仅在模板未就绪时运行一次 Adacrop
-                DispatchQueue.main.async { self.debugMessage = "设备已稳定，开始识别目标区域..." }
-                self.adacrop.predictCropBox(pixelBuffer: pixel) { (crop: CropBox?) in
-                    guard let crop else {
-                        DispatchQueue.main.async {
-                            self.debugMessage = "目标识别失败，等待重试..."
-                            self.cropRectInView = nil
-                            self.boxCenterInView = nil
-                        }
-                        self.tracker.reset()
-                        return
-                    }
-
-                    DispatchQueue.main.async {
-                        if let layer = self.findPreviewLayer(),
-                           let rectInView = self.convertNormalizedRect(crop.rectInNormalizedImage, in: layer) {
-                            self.cropRectInView = rectInView
-                            self.boxCenterInView = CGPoint(x: rectInView.midX, y: rectInView.midY)
-                        } else {
-                            self.cropRectInView = nil
-                            self.boxCenterInView = nil
-                        }
-                    }
-
-                    self.tracker.startTracking(from: crop.rectInNormalizedImage, pixelBuffer: pixel)
-                    // 生成模板：取检测框中心小块（带完成回调，避免竞态）
-                    self.templateMatcher.setTemplate(from: pixel, normalizedRegion: crop.rectInNormalizedImage) { ok in
-                        DispatchQueue.main.async {
-                            if ok {
-                                self.templateReady = true
-                                self.debugMessage = "模板已生成：\(crop.detectionType)，开始相似度匹配..."
-                                self.cropRectInView = nil
-                            } else {
-                                self.templateReady = false
-                                self.debugMessage = "模板生成失败，等待重试..."
-                                self.tracker.reset()
-                            }
-                        }
-                    }
+            guard let compositionPixel = self.makeThreeByFourPixelBuffer(from: rawPixel, orientation: orientation) else {
+                DispatchQueue.main.async {
+                    self.debugMessage = "无法裁剪 3:4 画面"
                 }
-            } else {
-                // 模板已就绪：实时计算中心块相似度
-                if let sim = self.templateMatcher.similarityWithCenter(of: pixel) {
-                    DispatchQueue.main.async {
-                        self.lastSimilarity = sim
-                        let alignedNow = sim >= self.templateThreshold
-                        if alignedNow && !self.isAligned {
-                            self.debugMessage = "对准成功（相似度）！0.2秒后自动拍照..."
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                if self.isAligned == false {
-                                    self.isAligned = true
-                                    self.debugMessage = "正在拍照..."
-                                    self.camera.capturePhoto()
-                                }
-                            }
-                        } else if alignedNow {
-                            self.debugMessage = "保持对准（相似度）: \(String(format: "%.2f", sim))"
-                        } else {
-                            self.debugMessage = "移动中，相似度: \(String(format: "%.2f", sim))"
-                        }
-                        self.isAligned = alignedNow
-                    }
-                } else {
-                    DispatchQueue.main.async {
-                        self.debugMessage = "相似度计算失败"
-                        self.isAligned = false
-                    }
-                }
+                return
             }
 
-            self.tracker.track(pixelBuffer: pixel)
+            if !self.templateReady && !self.detectionInProgress {
+                DispatchQueue.main.async {
+                    self.debugMessage = "设备已稳定，开始识别目标区域..."
+                    self.lastCroppedPixelBuffer = compositionPixel
+                    self.detectionInProgress = true
+                }
+                self.detectCropOnce(using: compositionPixel, orientation: orientation)
+            } else if self.templateReady {
+                self.evaluateTemplateSimilarity(with: compositionPixel)
+                DispatchQueue.main.async {
+                    self.lastCroppedPixelBuffer = compositionPixel
+                }
+            }
         }
+    }
 
-        // Vision 跟踪回调：持续更新裁切框与追踪圆心
-        self.tracker.onUpdate = { (box: CGRect, confidence: Float) in
-            DispatchQueue.main.async {
-                guard let layer = self.findPreviewLayer(), let rectInView = self.convertNormalizedRect(box, in: layer) else {
+    // 执行一次 Adacrop 推理，并在成功后锁定基准中心
+    private func detectCropOnce(using pixel: CVPixelBuffer,
+                                orientation: CGImagePropertyOrientation) {
+        adacrop.predictCropBox(pixelBuffer: pixel, orientation: orientation) { crop in
+            guard let crop else {
+                DispatchQueue.main.async {
+                    self.debugMessage = "目标识别失败，等待重试..."
                     self.cropRectInView = nil
+                    self.baseBoxCenterInView = nil
                     self.boxCenterInView = nil
-                    return
+                    self.templateReady = false
+                    self.motion.resetReferenceAttitude() // 重置参考姿态，避免历史偏移污染下一次检测
+                    self.detectionInProgress = false
                 }
-                self.cropRectInView = rectInView
-                self.boxCenterInView = CGPoint(x: rectInView.midX, y: rectInView.midY)
+                return
+            }
+
+            DispatchQueue.main.async {
+                if let layer = self.findPreviewLayer(),
+                   let rectInView = self.convertNormalizedRect(crop.rectInNormalizedImage,
+                                                              in: layer,
+                                                              orientation: orientation) {
+                    self.cropRectInView = rectInView
+                    let center = CGPoint(x: rectInView.midX, y: rectInView.midY)
+                    self.baseBoxCenterInView = center
+                    self.boxCenterInView = center
+                    self.motion.lockReferenceAttitude() // 将当前陀螺仪姿态锁定为 2D 偏移的零点
+                    self.updateBoxCenter(withNormalizedOffset: self.motion.screenOffsetNormalized)
+                } else {
+                    self.cropRectInView = nil
+                    self.baseBoxCenterInView = nil
+                    self.boxCenterInView = nil
+                }
+            }
+
+            self.templateMatcher.setTemplate(from: pixel, normalizedRegion: crop.rectInNormalizedImage) { ok in
+                DispatchQueue.main.async {
+                    if ok {
+                        self.templateReady = true
+                        self.debugMessage = "模板已生成：\(crop.detectionType)，开始相似度匹配..."
+                        self.lastSimilarity = nil
+                        self.isAligned = false
+                        self.detectionInProgress = false
+                    } else {
+                        self.templateReady = false
+                        self.debugMessage = "模板生成失败，等待重试..."
+                        self.baseBoxCenterInView = nil
+                        self.boxCenterInView = nil
+                        self.motion.resetReferenceAttitude()
+                        self.detectionInProgress = false
+                    }
+                }
             }
         }
+    }
 
-        self.tracker.onTrackingLost = {
+    // 将模板匹配的相似度转换为拍照触发逻辑
+    private func evaluateTemplateSimilarity(with pixel: CVPixelBuffer) {
+        if let sim = templateMatcher.similarityWithCenter(of: pixel) {
             DispatchQueue.main.async {
-                self.cropRectInView = nil
-                self.boxCenterInView = nil
+                self.lastSimilarity = sim
+                let alignedNow = sim >= self.templateThreshold
+                if alignedNow && !self.isAligned {
+                    self.debugMessage = "对准成功（相似度）！0.2秒后自动拍照..."
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        if self.isAligned == false {
+                            self.isAligned = true
+                            self.debugMessage = "正在拍照..."
+                            self.camera.capturePhoto()
+                        }
+                    }
+                } else if alignedNow {
+                    self.debugMessage = "保持对准（相似度）: \(String(format: "%.2f", sim))"
+                } else {
+                    self.debugMessage = "移动中，相似度: \(String(format: "%.2f", sim))"
+                }
+                self.isAligned = alignedNow
+            }
+        } else {
+            DispatchQueue.main.async {
+                self.debugMessage = "相似度计算失败"
+                self.isAligned = false
             }
         }
     }
@@ -353,57 +401,143 @@ extension ContentView {
         previewProvider.layer
     }
 
-    private func convertNormalizedRect(_ rect: CGRect, in layer: AVCaptureVideoPreviewLayer) -> CGRect? {
-        // Vision 的归一化坐标以左下为原点，需要先转换为 AVCaptureMetadataOutput 所使用的左上为原点的归一化坐标
+    private func convertNormalizedRect(_ rect: CGRect,
+                                       in layer: AVCaptureVideoPreviewLayer,
+                                       orientation: CGImagePropertyOrientation) -> CGRect? {
+        // 先根据图像方向将 Vision 坐标旋转回预览层坐标系
+        let rotated = rotateNormalizedRect(rect, for: orientation)
         let metadataRect = CGRect(
-            x: rect.origin.x,
-            y: 1.0 - rect.origin.y - rect.size.height,
-            width: rect.size.width,
-            height: rect.size.height
+            x: rotated.origin.x,
+            y: 1.0 - rotated.origin.y - rotated.size.height,
+            width: rotated.size.width,
+            height: rotated.size.height
         )
         return layer.layerRectConverted(fromMetadataOutputRect: metadataRect)
     }
 
-    private func evaluateAlignment() {
-        guard let center = self.boxCenterInView else { 
-            self.isAligned = false
-            return 
+    private func rotateNormalizedRect(_ rect: CGRect,
+                                      for orientation: CGImagePropertyOrientation) -> CGRect {
+        // 将不同拍摄方向的归一化坐标统一到预览层使用的“左上角为原点”的坐标系
+        switch orientation {
+        case .up, .upMirrored:
+            return rect
+        case .right, .rightMirrored:
+            return CGRect(x: 1.0 - rect.origin.y - rect.size.height,
+                          y: rect.origin.x,
+                          width: rect.size.height,
+                          height: rect.size.width)
+        case .down, .downMirrored:
+            return CGRect(x: 1.0 - rect.origin.x - rect.size.width,
+                          y: 1.0 - rect.origin.y - rect.size.height,
+                          width: rect.size.width,
+                          height: rect.size.height)
+        case .left, .leftMirrored:
+            return CGRect(x: rect.origin.y,
+                          y: 1.0 - rect.origin.x - rect.size.width,
+                          width: rect.size.height,
+                          height: rect.size.width)
+        @unknown default:
+            return rect
         }
-        
-        #if canImport(UIKit)
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = scene.keyWindow else { 
-            self.isAligned = false
-            return 
+    }
+
+    // 监听几何变化，保证 3:4 窗口变化时重新换算陀螺仪偏移
+    private func updateCompositionRectIfNeeded(_ rect: CGRect) {
+        guard compositionRectInView != rect else { return }
+        DispatchQueue.main.async {
+            self.compositionRectInView = rect
+            self.updateBoxCenter(withNormalizedOffset: self.motion.screenOffsetNormalized)
         }
-        let screenCenter = CGPoint(x: window.bounds.midX, y: window.bounds.midY)
-        let distance = hypot(center.x - screenCenter.x, center.y - screenCenter.y)
-        #else
-        let distance: CGFloat = .infinity
-        #endif
-        
-        let threshold: CGFloat = 10
-        let alignedNow = distance < threshold
-        
-        // 更新调试信息显示距离
-        if alignedNow {
-            debugMessage = "目标已对准！准备拍照..."
-        } else {
-            debugMessage = "正在跟踪目标，距离中心: \(Int(distance))px"
+    }
+
+    // 将 MotionStabilityMonitor 提供的归一化偏移映射为界面像素
+    private func updateBoxCenter(withNormalizedOffset offset: CGPoint) {
+        guard let base = baseBoxCenterInView, compositionRectInView != .zero else { return }
+        // 将归一化偏移量映射到实际像素：横向取构图宽度的 40%，纵向同理（并限制在窗口内）
+        let maxOffsetX = compositionRectInView.width * 0.4
+        let maxOffsetY = compositionRectInView.height * 0.4
+        // 俯仰映射到屏幕纵轴时需要取反，使“抬头”对应点上移
+        let target = CGPoint(x: base.x + offset.x * maxOffsetX,
+                             y: base.y - offset.y * maxOffsetY)
+        let clamped = clamp(point: target, to: compositionRectInView)
+        DispatchQueue.main.async {
+            self.boxCenterInView = clamped
         }
-        
-        if alignedNow && !isAligned {
-            // small debounce
-            debugMessage = "对准成功！0.2秒后自动拍照..."
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                if self.isAligned == false {
-                    self.isAligned = true
-                    self.debugMessage = "正在拍照..."
-                    self.camera.capturePhoto()
-                }
-            }
+    }
+
+    private func clamp(point: CGPoint, to rect: CGRect) -> CGPoint {
+        CGPoint(x: min(max(point.x, rect.minX), rect.maxX),
+                y: min(max(point.y, rect.minY), rect.maxY))
+    }
+
+    private func makeThreeByFourPixelBuffer(from pixelBuffer: CVPixelBuffer,
+                                            orientation: CGImagePropertyOrientation) -> CVPixelBuffer? {
+        // 先将原始图像旋转到“竖屏向上”的方向，保证后续 3:4 裁剪稳定
+        let orientedImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation)
+        let extent = orientedImage.extent
+        let desiredAspect: CGFloat = 3.0 / 4.0
+        var cropRect = extent
+        let currentAspect = extent.width / extent.height
+
+        if currentAspect > desiredAspect {
+            let newWidth = extent.height * desiredAspect
+            cropRect.origin.x = extent.midX - newWidth * 0.5
+            cropRect.size.width = newWidth
+        } else if currentAspect < desiredAspect {
+            let newHeight = extent.width / desiredAspect
+            cropRect.origin.y = extent.midY - newHeight * 0.5
+            cropRect.size.height = newHeight
         }
-        self.isAligned = alignedNow
+
+        let croppedImage = orientedImage.cropped(to: cropRect)
+
+        var outputBuffer: CVPixelBuffer?
+        let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
+        let attributes: [String: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey as String: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+        ]
+
+        let status = CVPixelBufferCreate(kCFAllocatorDefault,
+                                         Int(cropRect.width),
+                                         Int(cropRect.height),
+                                         pixelFormat,
+                                         attributes as CFDictionary,
+                                         &outputBuffer)
+        guard status == kCVReturnSuccess, let buffer = outputBuffer else { return nil }
+
+        ContentView.ciContext.render(croppedImage, to: buffer)
+        return buffer
+    }
+
+    private func pixelOrientation(for pixelBuffer: CVPixelBuffer) -> CGImagePropertyOrientation {
+        // 根据宽高判断传感器当前的原始朝向，默认认为横向图像代表竖屏拍摄（右旋 90°）
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        return width > height ? .right : .up
+    }
+
+    private func resetDetectionState() {
+        templateReady = false
+        isAligned = false
+        lastSimilarity = nil
+        cropRectInView = nil
+        baseBoxCenterInView = nil
+        boxCenterInView = nil
+        lastCroppedPixelBuffer = nil
+        previewProvider.layer?.setNeedsDisplay()
+        motion.resetReferenceAttitude() // 恢复陀螺仪偏移参考
+        detectionInProgress = false
+        debugMessage = "已重置检测，等待稳定..."
+    }
+
+    private static func compositionRect(in size: CGSize) -> CGRect {
+        // 根据屏幕宽度计算 3:4 的可视窗口，并在竖直方向居中
+        let width = size.width
+        let targetHeight = width * 4.0 / 3.0
+        let height = min(size.height, targetHeight)
+        let originY = (size.height - height) * 0.5
+        return CGRect(x: 0, y: originY, width: width, height: height)
     }
 }
 

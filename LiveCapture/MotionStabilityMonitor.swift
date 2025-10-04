@@ -5,6 +5,7 @@
 
 import Foundation
 import Combine
+import CoreGraphics
 
 #if os(iOS)
 import CoreMotion
@@ -16,6 +17,7 @@ final class MotionStabilityMonitor: ObservableObject {
 
     @Published var isStable: Bool = false
     @Published var debugInfo: String = "初始化中..."
+    @Published var screenOffsetNormalized: CGPoint = .zero // 陀螺仪转换出的 2D 归一化偏移量
 
     // configurable - 针对跟踪场景优化的阈值
     var windowSeconds: TimeInterval = 0.8        // 增加窗口时间以获得更稳定的判断
@@ -34,11 +36,17 @@ final class MotionStabilityMonitor: ObservableObject {
 
     private var accSamples: [(t: TimeInterval, v: CMAcceleration)] = []
     private var gyroSamples: [(t: TimeInterval, v: CMRotationRate)] = []
+    private var lastPitch: Double = 0
+    private var lastRoll: Double = 0
+    private var referencePitch: Double?
+    private var referenceRoll: Double?
+    private let maxAngle: Double = .pi / 6 // 控制映射到界面的最大角度（约 30°）
 
     func start() {
-        guard motion.isAccelerometerAvailable || motion.isGyroAvailable else { return }
+        guard motion.isAccelerometerAvailable || motion.isGyroAvailable || motion.isDeviceMotionAvailable else { return }
         motion.accelerometerUpdateInterval = 1.0 / 60.0
         motion.gyroUpdateInterval = 1.0 / 60.0
+        motion.deviceMotionUpdateInterval = 1.0 / 60.0
 
         if motion.isAccelerometerAvailable {
             motion.startAccelerometerUpdates(to: OperationQueue()) { [weak self] data, _ in
@@ -60,21 +68,76 @@ final class MotionStabilityMonitor: ObservableObject {
                 }
             }
         }
+        if motion.isDeviceMotionAvailable {
+            motion.startDeviceMotionUpdates(to: OperationQueue()) { [weak self] data, _ in
+                guard let self, let data else { return }
+                self.dataQueue.async {
+                    self.updateScreenOffset(with: data)
+                }
+            }
+        }
     }
 
     func stop() {
         motion.stopAccelerometerUpdates()
         motion.stopGyroUpdates()
+        motion.stopDeviceMotionUpdates()
         // 在数据队列中安全地重置状态
         dataQueue.async {
             self.consecutiveStableFrames = 0
             self.consecutiveUnstableFrames = 0
             self.accSamples.removeAll()
             self.gyroSamples.removeAll()
+            self.referencePitch = nil
+            self.referenceRoll = nil
         }
         DispatchQueue.main.async { 
             self.isStable = false
             self.debugInfo = "已停止"
+            self.screenOffsetNormalized = .zero
+        }
+    }
+
+    func lockReferenceAttitude() {
+        // 将当前姿态记为参考零点，供 3D -> 2D 偏移换算使用
+        dataQueue.async {
+            self.referencePitch = self.lastPitch
+            self.referenceRoll = self.lastRoll
+            DispatchQueue.main.async {
+                self.screenOffsetNormalized = .zero
+            }
+        }
+    }
+
+    func resetReferenceAttitude() {
+        // 清除参考姿态，同时把偏移归零
+        dataQueue.async {
+            self.referencePitch = nil
+            self.referenceRoll = nil
+            DispatchQueue.main.async {
+                self.screenOffsetNormalized = .zero
+            }
+        }
+    }
+
+    private func updateScreenOffset(with data: CMDeviceMotion) {
+        // 将陀螺仪的俯仰/横滚角映射到屏幕上的二维偏移
+        let pitch = data.attitude.pitch
+        let roll = data.attitude.roll
+        lastPitch = pitch
+        lastRoll = roll
+
+        let refPitch = referencePitch ?? pitch
+        let refRoll = referenceRoll ?? roll
+
+        let deltaPitch = max(-maxAngle, min(maxAngle, pitch - refPitch))
+        let deltaRoll = max(-maxAngle, min(maxAngle, roll - refRoll))
+
+        let offset = CGPoint(x: deltaRoll / maxAngle,
+                             y: deltaPitch / maxAngle)
+
+        DispatchQueue.main.async {
+            self.screenOffsetNormalized = offset
         }
     }
 
@@ -170,5 +233,3 @@ final class MotionStabilityMonitor: ObservableObject {
 }
 
 #endif
-
-
