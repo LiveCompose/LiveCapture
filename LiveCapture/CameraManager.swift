@@ -44,6 +44,7 @@ final class CameraManager: NSObject, ObservableObject {
     private let videoOutput: AVCaptureVideoDataOutput = AVCaptureVideoDataOutput()
     /// Core Image 上下文，用于执行 3:4 裁剪与编码。
     private let photoContext = CIContext() // 用于将原始照片裁剪为 3:4，并重新编码为 JPEG
+    private var currentPosition: AVCaptureDevice.Position = .back
 
     /// 视频帧到达时的回调，运行在 `videoOutputQueue` 上。
     var onSampleBuffer: ((CMSampleBuffer) -> Void)?
@@ -96,7 +97,7 @@ final class CameraManager: NSObject, ObservableObject {
         defer { session.commitConfiguration() }
 
         // Input
-        guard let device: AVCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+        guard let device: AVCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentPosition) else {
             throw CameraError.cameraUnavailable
         }
         let input: AVCaptureDeviceInput = try AVCaptureDeviceInput(device: device)
@@ -124,6 +125,9 @@ final class CameraManager: NSObject, ObservableObject {
                     connection.videoRotationAngle = 90
                 }
                 configureStabilization(for: connection)
+                if connection.isVideoMirroringSupported {
+                    connection.isVideoMirrored = currentPosition == .front
+                }
             }
         } else {
             throw CameraError.cannotAddOutput
@@ -145,6 +149,44 @@ final class CameraManager: NSObject, ObservableObject {
             guard self.session.isRunning else { return }
             self.session.stopRunning()
             DispatchQueue.main.async { self.isSessionRunning = false }
+        }
+    }
+
+    /// 在前后摄像头之间切换。
+    func toggleCameraPosition() {
+        sessionQueue.async {
+            let nextPosition: AVCaptureDevice.Position = self.currentPosition == .back ? .front : .back
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: nextPosition) else { return }
+            do {
+                let newInput = try AVCaptureDeviceInput(device: device)
+                self.session.beginConfiguration()
+                let videoInputs = self.session.inputs.compactMap { $0 as? AVCaptureDeviceInput }
+                for input in videoInputs where input.device.hasMediaType(.video) {
+                    self.session.removeInput(input)
+                }
+                if self.session.canAddInput(newInput) {
+                    self.session.addInput(newInput)
+                    self.currentPosition = nextPosition
+                } else {
+                    for input in videoInputs {
+                        self.session.addInput(input)
+                    }
+                    self.session.commitConfiguration()
+                    return
+                }
+                self.session.commitConfiguration()
+                if let connection = self.videoOutput.connection(with: .video) {
+                    if connection.isVideoRotationAngleSupported(90) {
+                        connection.videoRotationAngle = 90
+                    }
+                    self.configureStabilization(for: connection)
+                    if connection.isVideoMirroringSupported {
+                        connection.isVideoMirrored = nextPosition == .front
+                    }
+                }
+            } catch {
+                return
+            }
         }
     }
 

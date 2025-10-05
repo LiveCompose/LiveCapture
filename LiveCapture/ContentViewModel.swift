@@ -25,6 +25,7 @@ final class ContentViewModel: ObservableObject {
 	@Published private(set) var isAligned: Bool = false
 	@Published private(set) var showSaveToast: Bool = false
 	@Published private(set) var debugMessage: String = "等待相机启动..."
+	@Published private(set) var pipelineStage: PipelineStage = .idle
 	@Published private(set) var lastSimilarity: Float?
 	@Published private(set) var templateReady: Bool = false
 	@Published private(set) var motionIsStable: Bool = false
@@ -44,6 +45,34 @@ final class ContentViewModel: ObservableObject {
 	private var cancellables: Set<AnyCancellable> = []
 	private var autoCaptureWorkItem: DispatchWorkItem?
 
+	// MARK: - Pipeline stage description
+
+	enum PipelineStage: Equatable {
+		case idle
+		case startingCamera
+		case waitingForStability
+		case detectingRegion
+		case templateReady
+		case aligning
+		case capturingPhoto
+		case savingPhoto
+		case error
+
+		var progress: Double {
+			switch self {
+			case .idle: return 0.05
+			case .startingCamera: return 0.15
+			case .waitingForStability: return 0.3
+			case .detectingRegion: return 0.55
+			case .templateReady: return 0.7
+			case .aligning: return 0.85
+			case .capturingPhoto: return 0.95
+			case .savingPhoto: return 1.0
+			case .error: return 0.2
+			}
+		}
+	}
+
 	// MARK: - Life cycle
 
 	init() {
@@ -59,20 +88,21 @@ final class ContentViewModel: ObservableObject {
 
 	var session: AVCaptureSession { camera.session }
 	var similarityThreshold: Float { similarityThresholdInternal }
+	var pipelineProgress: Double { pipelineStage.progress }
 
 	func onAppear() {
-		debugMessage = "正在启动相机..."
+		setStage(.startingCamera, message: "正在启动相机...")
 		camera.checkAndConfigure { [weak self] result in
 			guard let self else { return }
 			switch result {
 			case .success:
 				self.camera.startSession()
 				DispatchQueue.main.async {
-					self.debugMessage = "相机启动成功，等待稳定..."
+					self.setStage(.waitingForStability, message: "相机启动成功，等待稳定...")
 				}
 			case .failure:
 				DispatchQueue.main.async {
-					self.debugMessage = "相机启动失败"
+					self.setStage(.error, message: "相机启动失败")
 				}
 			}
 		}
@@ -96,6 +126,21 @@ final class ContentViewModel: ObservableObject {
 		camera.capturePhoto()
 	}
 
+	func toggleCameraPosition() {
+		camera.toggleCameraPosition()
+		setStage(.waitingForStability, message: "切换镜头，等待稳定...")
+	}
+
+	func openSystemPhotoLibrary() {
+		#if canImport(UIKit)
+		if let url = URL(string: "photos-redirect://") {
+			DispatchQueue.main.async {
+				UIApplication.shared.open(url, options: [:], completionHandler: nil)
+			}
+		}
+		#endif
+	}
+
 	func resetDetectionState() {
 		templateReady = false
 		isAligned = false
@@ -109,7 +154,7 @@ final class ContentViewModel: ObservableObject {
 		adacrop.resetSmoothing()
 		templateMatcher.resetTemplate()
 		detectionInProgress = false
-		debugMessage = "已重置检测，等待稳定..."
+		setStage(.waitingForStability, message: "已重置检测，等待稳定...")
 	}
 
 	#if canImport(UIKit)
@@ -139,7 +184,7 @@ final class ContentViewModel: ObservableObject {
 				guard let self else { return }
 				self.motionIsStable = stable
 				if !stable {
-					self.debugMessage = "等待设备稳定..."
+					self.setStage(.waitingForStability, message: "等待设备稳定...")
 				}
 			}
 			.store(in: &cancellables)
@@ -152,7 +197,7 @@ final class ContentViewModel: ObservableObject {
 				guard let self else { return }
 				guard saved else { return }
 				self.showSaveToast = true
-				self.debugMessage = "照片已保存到相册"
+				self.setStage(.savingPhoto, message: "照片已保存到相册")
 				DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
 					self.showSaveToast = false
 				}
@@ -175,21 +220,21 @@ final class ContentViewModel: ObservableObject {
 
 		guard motion.isStable else {
 			DispatchQueue.main.async {
-				self.debugMessage = "等待设备稳定..."
+				self.setStage(.waitingForStability, message: "等待设备稳定...")
 			}
 			return
 		}
 
 		guard let compositionPixel = makeThreeByFourPixelBuffer(from: rawPixel, orientation: orientation) else {
 			DispatchQueue.main.async {
-				self.debugMessage = "无法裁剪 3:4 画面"
+				self.setStage(.error, message: "无法裁剪 3:4 画面")
 			}
 			return
 		}
 
 		if !templateReady && !detectionInProgress {
 			DispatchQueue.main.async {
-				self.debugMessage = "设备已稳定，开始识别目标区域..."
+				self.setStage(.detectingRegion, message: "设备已稳定，开始识别目标区域...")
 				self.lastCroppedPixelBuffer = compositionPixel
 				self.detectionInProgress = true
 			}
@@ -208,7 +253,7 @@ final class ContentViewModel: ObservableObject {
 			guard let self else { return }
 			guard let crop else {
 				DispatchQueue.main.async {
-					self.debugMessage = "目标识别失败，等待重试..."
+					self.setStage(.waitingForStability, message: "目标识别失败，等待重试...")
 					self.cropRectInView = nil
 					self.baseBoxCenterInView = nil
 					self.boxCenterInView = nil
@@ -242,12 +287,12 @@ final class ContentViewModel: ObservableObject {
 				DispatchQueue.main.async {
 					if ok {
 						self.templateReady = true
-						self.debugMessage = "模板已生成：\(crop.detectionType)，开始相似度匹配..."
+						self.setStage(.templateReady, message: "模板已生成：\(crop.detectionType)，开始相似度匹配...")
 						self.lastSimilarity = nil
 						self.isAligned = false
 					} else {
 						self.templateReady = false
-						self.debugMessage = "模板生成失败，等待重试..."
+						self.setStage(.error, message: "模板生成失败，等待重试...")
 						self.baseBoxCenterInView = nil
 						self.boxCenterInView = nil
 						self.motion.resetReferenceAttitude()
@@ -261,7 +306,7 @@ final class ContentViewModel: ObservableObject {
 	private func evaluateTemplateSimilarity(with pixel: CVPixelBuffer) {
 		guard let sim = templateMatcher.similarityWithCenter(of: pixel) else {
 			DispatchQueue.main.async {
-				self.debugMessage = "相似度计算失败"
+				self.setStage(.error, message: "相似度计算失败")
 				self.isAligned = false
 				self.lastSimilarity = nil
 				self.cancelAutoCapture()
@@ -273,12 +318,12 @@ final class ContentViewModel: ObservableObject {
 			self.lastSimilarity = sim
 			let alignedNow = sim >= self.similarityThresholdInternal
 			if alignedNow && !self.isAligned {
-				self.debugMessage = "对准成功（相似度）！0.2秒后自动拍照..."
+				self.setStage(.aligning, message: "对准成功（相似度）！0.2秒后自动拍照...")
 				self.scheduleAutoCapture()
 			} else if alignedNow {
-				self.debugMessage = "保持对准（相似度）: \(String(format: "%.2f", sim))"
+				self.setStage(.aligning, message: "保持对准（相似度）: \(String(format: "%.2f", sim))")
 			} else {
-				self.debugMessage = "移动中，相似度: \(String(format: "%.2f", sim))"
+				self.setStage(.templateReady, message: "移动中，相似度: \(String(format: "%.2f", sim))")
 				self.cancelAutoCapture()
 			}
 			self.isAligned = alignedNow
@@ -290,7 +335,7 @@ final class ContentViewModel: ObservableObject {
 		let work = DispatchWorkItem { [weak self] in
 			guard let self else { return }
 			if self.isAligned {
-				self.debugMessage = "正在拍照..."
+				self.setStage(.capturingPhoto, message: "正在拍照...")
 				self.capturePhoto()
 			}
 		}
@@ -301,6 +346,20 @@ final class ContentViewModel: ObservableObject {
 	private func cancelAutoCapture() {
 		autoCaptureWorkItem?.cancel()
 		autoCaptureWorkItem = nil
+	}
+
+	private func setStage(_ stage: PipelineStage, message: String? = nil) {
+		let applyChange = {
+			self.pipelineStage = stage
+			if let message {
+				self.debugMessage = message
+			}
+		}
+		if Thread.isMainThread {
+			applyChange()
+		} else {
+			DispatchQueue.main.async(execute: applyChange)
+		}
 	}
 
 	// MARK: - Geometry helpers

@@ -19,21 +19,63 @@ struct ContentView: View {
     @StateObject private var viewModel = ContentViewModel()
     /// 默认隐藏调试栏，由按钮控制。
     @State private var showDebugInfo = false
+    @Environment(\.dismiss) private var dismiss // 用于关闭当前视图
 
-    /// 主视图内容，包含相机预览、覆盖层以及底部控制栏。
+    /// 主视图内容，包含顶部控制区、取景区和底部控制栏。
     var body: some View {
         GeometryReader { geo in
-            let compositionRect = Self.compositionRect(in: geo.size)
-            let canvasRect = CGRect(origin: .zero, size: geo.size)
-            let topAdjustment = Self.topAdjustment()
+            let safeInsets = geo.safeAreaInsets
+            let dynamicIslandHeight = max(safeInsets.top, 0)
 
             ZStack {
-                Color.black
-                    .ignoresSafeArea()
+                Color.black.ignoresSafeArea()
 
+                VStack(spacing: 0) {
+                    //Spacer().frame(height: dynamicIslandHeight)
+
+                    topSection
+
+                    previewSection()
+                        .frame(maxWidth: .infinity)
+                        .frame(maxHeight: .infinity)
+
+                    bottomSection(bottomInset: max(safeInsets.bottom, 16))
+                }
+            }
+        }
+        .navigationBarBackButtonHidden(true)
+        .onAppear { viewModel.onAppear() }
+        .onDisappear { viewModel.onDisappear() }
+    }
+
+    private var topSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            topControlBar
+            
+            if showDebugInfo {
+                debugPanel
+            }
+
+            if viewModel.showSaveToast {
+                Text("已保存")
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func previewSection() -> some View {
+        GeometryReader { previewGeo in
+            let compositionRect = Self.compositionRect(in: previewGeo.size)
+            let canvasRect = CGRect(origin: .zero, size: previewGeo.size)
+
+            ZStack {
                 CameraPreviewView(session: viewModel.session)
                     .frame(width: compositionRect.width, height: compositionRect.height)
-                    .position(x: compositionRect.midX, y: compositionRect.midY - topAdjustment)
+                    .position(x: compositionRect.midX, y: compositionRect.midY)
                     .clipped()
 
                 ContentOverlayView(
@@ -42,80 +84,138 @@ struct ContentView: View {
                     cropRectInView: viewModel.cropRectInView,
                     boxCenterInView: viewModel.boxCenterInView,
                     isAligned: viewModel.isAligned,
-                    topAdjustment: topAdjustment
+                    topAdjustment: 0
                 )
-
-                bottomControlBar
             }
             .onAppear {
                 viewModel.registerCompositionRect(compositionRect)
             }
-            .onChange(of: geo.size) { newSize in
+            .onChange(of: previewGeo.size) { newSize in
                 viewModel.registerCompositionRect(Self.compositionRect(in: newSize))
             }
-            .overlay(alignment: .top) { topOverlay }
         }
-        .onAppear { viewModel.onAppear() }
-        .onDisappear { viewModel.onDisappear() }
     }
 
-    @ViewBuilder
-    private var bottomControlBar: some View {
-        VStack {
-            Spacer()
+    private func bottomSection(bottomInset: CGFloat) -> some View {
+        VStack(spacing: 18) {
             HStack(spacing: 25) {
-                Button(action: {}) {
-                    Image(systemName: "bolt.circle")
-                        .font(.system(size: 22, weight: .regular))
-                        .foregroundStyle(.white)
-                        .opacity(0.9)
-                }
-                Button(action: { showDebugInfo.toggle() }) {
-                    Image(systemName: showDebugInfo ? "eye.slash.circle" : "eye.circle")
-                        .font(.system(size: 22, weight: .regular))
-                        .foregroundStyle(.white)
-                        .opacity(0.9)
+                captureButton
+            }
+
+            HStack {
+                secondaryCircleButton(systemName: "photo.on.rectangle") {
+                    viewModel.openSystemPhotoLibrary()
                 }
                 Spacer()
-                Button(action: { viewModel.capturePhoto() }) {
-                    Circle()
-                        .strokeBorder(Color.white, lineWidth: 10)
-                        .frame(width: 78, height: 78)
-                        .overlay(Circle().fill(Color.white.opacity(0.15)))
-                }
-                Spacer()
-                Button(action: { resetDetectionState() }) {
-                    Image(systemName: "gobackward")
-                        .font(.system(size: 22, weight: .regular))
-                        .foregroundStyle(.white)
-                        .opacity(0.9)
-                }
-                Button(action: {}) {
-                    Image(systemName: "arrow.triangle.2.circlepath.camera")
-                        .font(.system(size: 22, weight: .regular))
-                        .foregroundStyle(.white)
-                        .opacity(0.9)
+                secondaryCircleButton(systemName: "arrow.triangle.2.circlepath.camera") {
+                    viewModel.toggleCameraPosition()
                 }
             }
-            .padding(.horizontal, 25)
-            .padding(.bottom, 75)
+        }
+        .padding(.horizontal, 24)
+    }
+
+    /// 顶部控制栏，包含返回、重置、调试显示和菜单操作。
+    private var topControlBar: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 12) {
+                topCircleButton(systemName: "chevron.left") { dismiss() }
+            }
+
+            Spacer()
+
+            statusProgressView
+
+            Spacer()
+
+            Menu {
+                Button {
+                    showDebugInfo.toggle()
+                } label: {
+                    Label(showDebugInfo ? "隐藏调试模式" : "打开调试模式", systemImage: showDebugInfo ? "eye.slash" : "eye")
+                }
+
+                Button { resetDetectionState() } label: {
+                    Label("刷新状态", systemImage: "arrow.counterclockwise")
+                }
+
+                Button { viewModel.openSystemPhotoLibrary() } label: {
+                    Label("打开相册", systemImage: "photo.on.rectangle")
+                }
+
+                Button { viewModel.toggleCameraPosition() } label: {
+                    Label("切换前后摄像头", systemImage: "arrow.triangle.2.circlepath.camera")
+                }
+            } label: {
+                topCircleLabel(systemName: "ellipsis")
+            }
         }
     }
 
-    @ViewBuilder
-    private var topOverlay: some View {
-        VStack(spacing: 8) {
-            if showDebugInfo {
-                debugPanel
-            }
+    private var statusProgressView: some View {
+        VStack(spacing: 6) {
+            Text(viewModel.debugMessage)
+                .font(.caption)
+                .foregroundColor(.white)
+                .multilineTextAlignment(.leading)
+                .lineLimit(2)
 
-            if viewModel.showSaveToast {
-                Text("已保存")
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-            }
+            ProgressView(value: viewModel.pipelineProgress, total: 1.0)
+                .progressViewStyle(LinearProgressViewStyle())
+                .tint(.green)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var captureButton: some View {
+        Button(action: { viewModel.capturePhoto() }) {
+            Circle()
+                .strokeBorder(Color.white, lineWidth: 10)
+                .frame(width: 78, height: 78)
+                .overlay(Circle().fill(Color.white.opacity(0.15)))
+        }
+    }
+
+    private func controlIconButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(.white)
+                .opacity(0.9)
+        }
+    }
+
+    private func secondaryCircleButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Circle()
+                .fill(Color.white.opacity(0.18))
+                .frame(width: 60, height: 60)
+                .overlay(
+                    Image(systemName: systemName)
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(.white)
+                )
+        }
+    }
+
+    private func topCircleButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            topCircleLabel(systemName: systemName)
+        }
+    }
+
+    private func topCircleLabel(systemName: String) -> some View {
+        Circle()
+            .fill(Color.white.opacity(0.18))
+            .frame(width: 40, height: 40)
+            .overlay(
+                Image(systemName: systemName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+            )
     }
 
     @ViewBuilder
@@ -188,17 +288,6 @@ struct ContentView: View {
             .padding(.horizontal, 16)
             #endif
         }
-    }
-
-    private static func topAdjustment() -> CGFloat {
-        var inset: CGFloat = 0
-        #if canImport(UIKit)
-        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let window = scene.windows.first {
-            inset = window.safeAreaInsets.top
-        }
-        #endif
-        return inset + 24
     }
 
     private static func compositionRect(in size: CGSize) -> CGRect {
