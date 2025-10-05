@@ -128,7 +128,7 @@ final class ContentViewModel: ObservableObject {
 
 	func toggleCameraPosition() {
 		camera.toggleCameraPosition()
-		setStage(.waitingForStability, message: "切换镜头，等待稳定...")
+		setStage(.waitingForStability, message: "切换镜头，等待稳定")
 	}
 
 	func openSystemPhotoLibrary() {
@@ -287,7 +287,7 @@ final class ContentViewModel: ObservableObject {
 				DispatchQueue.main.async {
 					if ok {
 						self.templateReady = true
-						self.setStage(.templateReady, message: "模板已生成：\(crop.detectionType)，开始相似度匹配...")
+						self.setStage(.templateReady, message: "模板已生成：\(crop.detectionType)，开始相似度匹配")
 						self.lastSimilarity = nil
 						self.isAligned = false
 					} else {
@@ -318,14 +318,11 @@ final class ContentViewModel: ObservableObject {
 			self.lastSimilarity = sim
 			let alignedNow = sim >= self.similarityThresholdInternal
 			if alignedNow && !self.isAligned {
-				self.setStage(.aligning, message: "对准成功（相似度）！0.2秒后自动拍照...")
+				self.setStage(.aligning, message: "对准成功")
 				self.scheduleAutoCapture()
 			} else if alignedNow {
-				self.setStage(.aligning, message: "保持对准（相似度）: \(String(format: "%.2f", sim))")
-			} else {
-				self.setStage(.templateReady, message: "移动中，相似度: \(String(format: "%.2f", sim))")
-				self.cancelAutoCapture()
-			}
+				self.setStage(.aligning, message: "保持对准")
+			} 
 			self.isAligned = alignedNow
 		}
 	}
@@ -335,7 +332,7 @@ final class ContentViewModel: ObservableObject {
 		let work = DispatchWorkItem { [weak self] in
 			guard let self else { return }
 			if self.isAligned {
-				self.setStage(.capturingPhoto, message: "正在拍照...")
+				self.setStage(.capturingPhoto, message: "正在拍照")
 				self.capturePhoto()
 			}
 		}

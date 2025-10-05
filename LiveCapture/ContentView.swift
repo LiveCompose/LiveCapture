@@ -25,22 +25,29 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geo in
             let safeInsets = geo.safeAreaInsets
-            let dynamicIslandHeight = max(safeInsets.top, 0)
 
             ZStack {
-                Color.black.ignoresSafeArea()
+                // 底层黑色背景，扩展到安全区域之外确保覆盖整屏
+                Color.black
+                    .ignoresSafeArea()
+                    .zIndex(0)
 
+                // 底层为相机预览（固定在黑色底之上）
+                previewSection()
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .ignoresSafeArea()
+                    .zIndex(0)
+
+                // 顶层 UI（所有控制项都叠加在预览之上）
                 VStack(spacing: 0) {
-                    //Spacer().frame(height: dynamicIslandHeight)
-
                     topSection
 
-                    previewSection()
-                        .frame(maxWidth: .infinity)
-                        .frame(maxHeight: .infinity)
+                    Spacer()
 
                     bottomSection(bottomInset: max(safeInsets.bottom, 16))
+                        .padding(.bottom, safeInsets.bottom > 0 ? 0 : 16)
                 }
+                .zIndex(1)
             }
         }
         .navigationBarBackButtonHidden(true)
@@ -51,18 +58,11 @@ struct ContentView: View {
     private var topSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             topControlBar
-            
+
             if showDebugInfo {
                 debugPanel
             }
 
-            if viewModel.showSaveToast {
-                Text("已保存")
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-            }
         }
         .padding(.horizontal, 20)
     }
@@ -117,56 +117,47 @@ struct ContentView: View {
 
     /// 顶部控制栏，包含返回、重置、调试显示和菜单操作。
     private var topControlBar: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 12) {
+        ZStack {
+            // 左右两端的按钮使用 HStack 布局，确保左侧按钮左对齐、右侧菜单右对齐
+            HStack {
                 topCircleButton(systemName: "chevron.left") { dismiss() }
-            }
 
-            Spacer()
+                Spacer()
 
-            statusProgressView
+                Menu {
+                    Button {
+                        showDebugInfo.toggle()
+                    } label: {
+                        Label(showDebugInfo ? "隐藏调试模式" : "打开调试模式", systemImage: showDebugInfo ? "eye.slash" : "eye")
+                    }
 
-            Spacer()
+                    Button { resetDetectionState() } label: {
+                        Label("刷新状态", systemImage: "arrow.counterclockwise")
+                    }
 
-            Menu {
-                Button {
-                    showDebugInfo.toggle()
                 } label: {
-                    Label(showDebugInfo ? "隐藏调试模式" : "打开调试模式", systemImage: showDebugInfo ? "eye.slash" : "eye")
+                    topCircleLabel(systemName: "ellipsis")
                 }
-
-                Button { resetDetectionState() } label: {
-                    Label("刷新状态", systemImage: "arrow.counterclockwise")
-                }
-
-                Button { viewModel.openSystemPhotoLibrary() } label: {
-                    Label("打开相册", systemImage: "photo.on.rectangle")
-                }
-
-                Button { viewModel.toggleCameraPosition() } label: {
-                    Label("切换前后摄像头", systemImage: "arrow.triangle.2.circlepath.camera")
-                }
-            } label: {
-                topCircleLabel(systemName: "ellipsis")
             }
+            // 中心显示进度条，使用 ZStack 居中叠放，给进度条左右留出间距以避免与两侧按钮重叠
+            statusProgressView
+                .padding(.horizontal, 64)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
     }
 
     private var statusProgressView: some View {
-        VStack(spacing: 6) {
-            Text(viewModel.debugMessage)
-                .font(.caption)
-                .foregroundColor(.white)
-                .multilineTextAlignment(.leading)
-                .lineLimit(2)
-
+        VStack(spacing: 0) {
             ProgressView(value: viewModel.pipelineProgress, total: 1.0)
                 .progressViewStyle(LinearProgressViewStyle())
                 .tint(.green)
+                .frame(height: 4)
+                .padding(.horizontal, 8)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: 80, alignment: .center) // 水平居中
+        .frame(height: 40) // 与旁边圆形按钮高度一致（topCircleLabel 为 40x40）
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 
@@ -192,7 +183,7 @@ struct ContentView: View {
         Button(action: action) {
             Circle()
                 .fill(Color.white.opacity(0.18))
-                .frame(width: 60, height: 60)
+                .frame(width: 48, height: 48)
                 .overlay(
                     Image(systemName: systemName)
                         .font(.system(size: 24, weight: .medium))
