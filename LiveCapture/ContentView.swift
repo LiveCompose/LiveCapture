@@ -142,8 +142,7 @@ struct ContentView: View {
                     }
                 )
             )
-            .frame(height: 160)
-            .padding(.horizontal, 10)
+            .frame(height: 120)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
