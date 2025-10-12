@@ -15,6 +15,7 @@ struct UniformPointSmoother {
     private let response: Double
     private var previous: SIMD2<Double>?
 
+    /// 使用指定的响应系数初始化平滑器。
     init(response: Double) {
         self.response = UniformPointSmoother.clamped(response)
     }
@@ -52,6 +53,7 @@ struct UniformRectSmoother {
     private let response: Double
     private var previous: SIMD4<Double>?
 
+    /// 使用指定响应参数初始化矩形平滑器。
     init(response: Double) {
         self.response = UniformRectSmoother.clamped(response)
     }

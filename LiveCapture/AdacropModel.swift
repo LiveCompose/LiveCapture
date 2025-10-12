@@ -25,6 +25,7 @@ final class AdacropModel {
     private var rectSmoother = UniformRectSmoother(response: 0.25)
     private var lastRawRect: CGRect? = nil
 
+    /// 初始化自适应裁剪模型，并构建必要的平滑器。
     init() {
         // 简化初始化，不再需要模型文件
     }
@@ -180,6 +181,7 @@ final class AdacropModel {
         var result: [Candidate] = []
         var dedupe = Set<String>()
 
+        /// 将候选矩形添加至集合并进行去重。
         func appendCandidate(_ rect: CGRect, reason: String) {
             let key = [rect.origin.x, rect.origin.y, rect.size.width, rect.size.height]
                 .map { Int(round($0 * 1000)) }

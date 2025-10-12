@@ -16,6 +16,7 @@ struct ContentOverlayView: View {
 	let isAligned: Bool
 	let topAdjustment: CGFloat
 
+	/// 绘制覆盖层内容，包括构图线、裁剪框与对齐指示。
 	var body: some View {
 		let focusColor: Color = isAligned ? .green : .white
 
@@ -76,6 +77,7 @@ struct ContentOverlayView: View {
 		.allowsHitTesting(false)
 	}
 
+	/// 将点坐标限制在指定矩形范围内。
 	private func clamp(point: CGPoint, to rect: CGRect) -> CGPoint {
 		CGPoint(x: min(max(point.x, rect.minX), rect.maxX),
 				y: min(max(point.y, rect.minY), rect.maxY))

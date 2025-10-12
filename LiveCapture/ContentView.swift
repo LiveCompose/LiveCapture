@@ -55,6 +55,7 @@ struct ContentView: View {
         .onDisappear { viewModel.onDisappear() }
     }
 
+    /// 顶部区域，包含控制栏与可选调试面板。
     private var topSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             topControlBar
@@ -67,6 +68,7 @@ struct ContentView: View {
         .padding(.horizontal, 20)
     }
 
+    /// 构建相机预览与覆盖层的组合视图。
     private func previewSection() -> some View {
         GeometryReader { previewGeo in
             let compositionRect = Self.compositionRect(in: previewGeo.size)
@@ -96,8 +98,11 @@ struct ContentView: View {
         }
     }
 
+    /// 底部控制区，包含变焦环与功能按钮。
     private func bottomSection(bottomInset: CGFloat) -> some View {
         VStack(spacing: 18) {
+            zoomRing
+
             HStack(spacing: 25) {
                 captureButton
             }
@@ -113,6 +118,34 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 24)
+        .padding(.bottom, bottomInset)
+    }
+
+    /// 变焦环控件，当支持连续变焦或多个预设时显示。
+    @ViewBuilder
+    private var zoomRing: some View {
+        let span = viewModel.zoomRange.upperBound - viewModel.zoomRange.lowerBound
+        if span > CGFloat(0.05) || viewModel.zoomPresets.count > 1 {
+            ZoomRingView(
+                config: .init(
+                    presets: viewModel.zoomPresets,
+                    range: viewModel.zoomRange,
+                    state: viewModel.zoomState,
+                    onPresetTap: { preset in
+                        viewModel.selectZoomPreset(preset)
+                    },
+                    onDragChanged: { factor in
+                        viewModel.updateZoomInteractively(to: factor)
+                    },
+                    onDragEnded: { factor in
+                        viewModel.finalizeZoomInteractively(at: factor, smooth: true)
+                    }
+                )
+            )
+            .frame(height: 160)
+            .padding(.horizontal, 10)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
     }
 
     /// 顶部控制栏，包含返回、重置、调试显示和菜单操作。
@@ -147,6 +180,7 @@ struct ContentView: View {
         .padding(.vertical, 8)
     }
 
+    /// 顶部居中的进度提示视图。
     private var statusProgressView: some View {
         VStack(spacing: 0) {
             ProgressView(value: viewModel.pipelineProgress, total: 1.0)
@@ -161,6 +195,7 @@ struct ContentView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 
+    /// 主拍照按钮样式。
     private var captureButton: some View {
         Button(action: { viewModel.capturePhoto() }) {
             Circle()
@@ -170,6 +205,7 @@ struct ContentView: View {
         }
     }
 
+    /// 构建一枚图标按钮并绑定操作。
     private func controlIconButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
@@ -179,6 +215,7 @@ struct ContentView: View {
         }
     }
 
+    /// 构建次要圆形按钮，适用于辅助操作。
     private func secondaryCircleButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Circle()
@@ -192,12 +229,14 @@ struct ContentView: View {
         }
     }
 
+    /// 生成顶部控制栏使用的圆形按钮。
     private func topCircleButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             topCircleLabel(systemName: systemName)
         }
     }
 
+    /// 顶部圆形按钮的内部标签样式。
     private func topCircleLabel(systemName: String) -> some View {
         Circle()
             .fill(Color.white.opacity(0.18))
@@ -210,6 +249,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder
+    /// 展示调试信息与图像预览的面板。
     private var debugPanel: some View {
         VStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
@@ -247,6 +287,9 @@ struct ContentView: View {
                 }
                 .font(.caption2)
 
+                Text("变焦: \(viewModel.zoomDisplayText) / \(viewModel.focalLengthText)")
+                    .font(.caption2)
+
                 Text("对准: \(viewModel.isAligned ? "已对准" : "未对准")")
                     .font(.caption2)
                     .foregroundColor(viewModel.isAligned ? .green : .primary)
@@ -281,6 +324,7 @@ struct ContentView: View {
         }
     }
 
+    /// 根据容器尺寸计算 3:4 构图区域。
     private static func compositionRect(in size: CGSize) -> CGRect {
         let width = size.width
         let targetHeight = width * 4.0 / 3.0
@@ -289,6 +333,7 @@ struct ContentView: View {
         return CGRect(x: 0, y: originY, width: width, height: height)
     }
 
+    /// 触发视图模型的检测状态重置流程。
     private func resetDetectionState() {
         viewModel.resetDetectionState()
     }

@@ -15,6 +15,13 @@ import SwiftUI
 
 /// 负责将取景界面所需的业务逻辑与状态封装为可观察对象。
 final class ContentViewModel: ObservableObject {
+	// MARK: - Dependencies
+
+	private(set) var camera = CameraManager()
+	private let motion = MotionStabilityMonitor()
+	private let adacrop = AdacropModel()
+	private let templateMatcher = TemplateMatcher()
+
 	// MARK: - Published state exposed to the view
 
 	@Published private(set) var cropRectInView: CGRect?
@@ -29,13 +36,9 @@ final class ContentViewModel: ObservableObject {
 	@Published private(set) var lastSimilarity: Float?
 	@Published private(set) var templateReady: Bool = false
 	@Published private(set) var motionIsStable: Bool = false
-
-	// MARK: - Dependencies
-
-	private(set) var camera = CameraManager()
-	private let motion = MotionStabilityMonitor()
-	private let adacrop = AdacropModel()
-	private let templateMatcher = TemplateMatcher()
+	@Published private(set) var zoomState: CameraManager.ZoomState
+	@Published private(set) var zoomPresets: [CameraManager.ZoomPreset]
+	@Published private(set) var zoomRange: ClosedRange<CGFloat>
 
 	// MARK: - Private state
 
@@ -76,6 +79,9 @@ final class ContentViewModel: ObservableObject {
 	// MARK: - Life cycle
 
 	init() {
+		zoomState = camera.zoomState
+		zoomPresets = camera.zoomPresets
+		zoomRange = camera.zoomRange
 		bindMotion()
 		bindCamera()
 	}
@@ -90,6 +96,7 @@ final class ContentViewModel: ObservableObject {
 	var similarityThreshold: Float { similarityThresholdInternal }
 	var pipelineProgress: Double { pipelineStage.progress }
 
+	/// 处理视图出现事件，启动相机与传感器。
 	func onAppear() {
 		setStage(.startingCamera, message: "正在启动相机...")
 		camera.checkAndConfigure { [weak self] result in
@@ -110,27 +117,59 @@ final class ContentViewModel: ObservableObject {
 		setupCallbacks()
 	}
 
+	/// 处理视图消失事件，停止后台任务。
 	func onDisappear() {
 		autoCaptureWorkItem?.cancel()
 		motion.stop()
 		camera.stopSession()
 	}
 
+	/// 注册最新的构图区域尺寸，触发中心点刷新。
 	func registerCompositionRect(_ rect: CGRect) {
 		guard compositionRectInView != rect else { return }
 		compositionRectInView = rect
 		updateBoxCenter(withNormalizedOffset: motion.screenOffsetNormalized)
 	}
 
+	/// 请求相机捕获一张照片。
 	func capturePhoto() {
 		camera.capturePhoto()
 	}
 
+	/// 应用指定的变焦预设。
+	func selectZoomPreset(_ preset: CameraManager.ZoomPreset) {
+		camera.selectZoomPreset(preset)
+	}
+
+	/// 在拖动过程中实时更新变焦倍率。
+	func updateZoomInteractively(to factor: CGFloat) {
+		camera.updateInteractiveZoom(to: factor)
+	}
+
+	/// 拖动结束后锁定最终变焦倍率。
+	func finalizeZoomInteractively(at factor: CGFloat, smooth: Bool) {
+		camera.finalizeInteractiveZoom(at: factor, smooth: smooth)
+	}
+
+	var zoomDisplayText: String {
+		let factor = zoomState.displayedFactor
+		if abs(Double(factor.rounded()) - Double(factor)) < 0.001 {
+			return "\(Int(factor.rounded()))×"
+		}
+		return String(format: "%.2f×", factor)
+	}
+
+	var focalLengthText: String {
+		"\(zoomState.focalLength)mm"
+	}
+
+	/// 切换前后镜头并重置状态提示。
 	func toggleCameraPosition() {
 		camera.toggleCameraPosition()
 		setStage(.waitingForStability, message: "切换镜头，等待稳定")
 	}
 
+	/// 跳转到系统相册以浏览已拍摄内容。
 	func openSystemPhotoLibrary() {
 		#if canImport(UIKit)
 		if let url = URL(string: "photos-redirect://") {
@@ -141,6 +180,7 @@ final class ContentViewModel: ObservableObject {
 		#endif
 	}
 
+	/// 手动重置模板匹配与检测状态。
 	func resetDetectionState() {
 		templateReady = false
 		isAligned = false
@@ -158,10 +198,12 @@ final class ContentViewModel: ObservableObject {
 	}
 
 	#if canImport(UIKit)
+	/// 获取模板的调试预览图。
 	func templatePreviewImage() -> UIImage? {
 		templateMatcher.templateUIImage()
 	}
 
+	/// 获取 3:4 裁剪中心的调试预览图。
 	func centerPreviewImage() -> UIImage? {
 		guard let pixel = lastCroppedPixelBuffer else { return nil }
 		return templateMatcher.centerUIImage(from: pixel)
@@ -170,6 +212,7 @@ final class ContentViewModel: ObservableObject {
 
 	// MARK: - Bindings
 
+	/// 订阅运动监视器的稳定性与偏移更新。
 	private func bindMotion() {
 		motion.$screenOffsetNormalized
 			.receive(on: DispatchQueue.main)
@@ -190,6 +233,7 @@ final class ContentViewModel: ObservableObject {
 			.store(in: &cancellables)
 	}
 
+	/// 订阅相机管理器的状态变更。
 	private func bindCamera() {
 		camera.$lastPhotoSaved
 			.receive(on: DispatchQueue.main)
@@ -203,10 +247,32 @@ final class ContentViewModel: ObservableObject {
 				}
 			}
 			.store(in: &cancellables)
+
+		camera.$zoomState
+			.receive(on: DispatchQueue.main)
+			.sink { [weak self] state in
+				self?.zoomState = state
+			}
+			.store(in: &cancellables)
+
+		camera.$zoomPresets
+			.receive(on: DispatchQueue.main)
+			.sink { [weak self] presets in
+				self?.zoomPresets = presets
+			}
+			.store(in: &cancellables)
+
+		camera.$zoomRange
+			.receive(on: DispatchQueue.main)
+			.sink { [weak self] range in
+				self?.zoomRange = range
+			}
+			.store(in: &cancellables)
 	}
 
 	// MARK: - Camera processing pipeline
 
+	/// 设置相机帧回调以驱动模板检测流程。
 	private func setupCallbacks() {
 		camera.onSampleBuffer = { [weak self] sample in
 			guard let self else { return }
@@ -214,6 +280,7 @@ final class ContentViewModel: ObservableObject {
 		}
 	}
 
+	/// 处理单帧采样数据，串联稳定性、裁剪与模板逻辑。
 	private func handleSampleBuffer(_ sample: CMSampleBuffer) {
 		guard let rawPixel = CMSampleBufferGetImageBuffer(sample) else { return }
 		let orientation = pixelOrientation(for: rawPixel)
@@ -247,6 +314,7 @@ final class ContentViewModel: ObservableObject {
 		}
 	}
 
+	/// 对单帧图像执行自适应裁剪检测。
 	private func detectCropOnce(using pixel: CVPixelBuffer,
 								orientation: CGImagePropertyOrientation) {
 		adacrop.predictCropBox(pixelBuffer: pixel, orientation: orientation) { [weak self] crop in
@@ -303,6 +371,7 @@ final class ContentViewModel: ObservableObject {
 		}
 	}
 
+	/// 根据模板向量计算当前画面的相似度。
 	private func evaluateTemplateSimilarity(with pixel: CVPixelBuffer) {
 		guard let sim = templateMatcher.similarityWithCenter(of: pixel) else {
 			DispatchQueue.main.async {
@@ -327,6 +396,7 @@ final class ContentViewModel: ObservableObject {
 		}
 	}
 
+	/// 安排自动拍照任务，确保对准后短延迟触发。
 	private func scheduleAutoCapture() {
 		autoCaptureWorkItem?.cancel()
 		let work = DispatchWorkItem { [weak self] in
@@ -340,11 +410,13 @@ final class ContentViewModel: ObservableObject {
 		DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
 	}
 
+	/// 取消已排队的自动拍照任务。
 	private func cancelAutoCapture() {
 		autoCaptureWorkItem?.cancel()
 		autoCaptureWorkItem = nil
 	}
 
+	/// 切换管线阶段并可选更新调试信息。
 	private func setStage(_ stage: PipelineStage, message: String? = nil) {
 		let applyChange = {
 			self.pipelineStage = stage
@@ -361,6 +433,7 @@ final class ContentViewModel: ObservableObject {
 
 	// MARK: - Geometry helpers
 
+	/// 根据稳定监控的偏移更新跟踪框中心。
 	private func updateBoxCenter(withNormalizedOffset offset: CGPoint) {
 		guard let base = baseBoxCenterInView, compositionRectInView != .zero else { return }
 		let maxOffsetX = compositionRectInView.width * 0.4
@@ -371,11 +444,13 @@ final class ContentViewModel: ObservableObject {
 		boxCenterInView = clamped
 	}
 
+	/// 将点限制在构图区域内部。
 	private func clamp(point: CGPoint, to rect: CGRect) -> CGPoint {
 		CGPoint(x: min(max(point.x, rect.minX), rect.maxX),
 				y: min(max(point.y, rect.minY), rect.maxY))
 	}
 
+	/// 将输入像素缓冲旋正并裁剪为 3:4 画幅。
 	private func makeThreeByFourPixelBuffer(from pixelBuffer: CVPixelBuffer,
 											orientation: CGImagePropertyOrientation) -> CVPixelBuffer? {
 		let orientedImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation)
@@ -415,12 +490,14 @@ final class ContentViewModel: ObservableObject {
 		return buffer
 	}
 
+	/// 根据像素尺寸推断原始图像的方向。
 	private func pixelOrientation(for pixelBuffer: CVPixelBuffer) -> CGImagePropertyOrientation {
 		let width = CVPixelBufferGetWidth(pixelBuffer)
 		let height = CVPixelBufferGetHeight(pixelBuffer)
 		return width > height ? .right : .up
 	}
 
+	/// 将归一化矩形转换到当前方向的坐标系。
 	private func rotateNormalizedRect(_ rect: CGRect,
 									  for orientation: CGImagePropertyOrientation) -> CGRect {
 		switch orientation {
@@ -446,6 +523,7 @@ final class ContentViewModel: ObservableObject {
 		}
 	}
 
+	/// 将归一化矩形映射到取景区域坐标。
 	private func rectInCompositionSpace(from rect: CGRect,
 										orientation: CGImagePropertyOrientation) -> CGRect? {
 		guard compositionRectInView != .zero else { return nil }
