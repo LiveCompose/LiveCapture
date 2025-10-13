@@ -14,7 +14,6 @@ struct ContentOverlayView: View {
 	let cropRectInView: CGRect?
 	let boxCenterInView: CGPoint?
 	let isAligned: Bool
-	let topAdjustment: CGFloat
 
 	/// 绘制覆盖层内容，包括构图线、裁剪框与对齐指示。
 	var body: some View {
@@ -22,14 +21,15 @@ struct ContentOverlayView: View {
 
 		// 将外部传入的全局坐标转换为 Canvas 本地坐标
 		let localComposition = CGRect(x: compositionRect.minX - canvasRect.minX,
-									  y: compositionRect.minY - canvasRect.minY - topAdjustment,
+									  y: compositionRect.minY - canvasRect.minY,
 									  width: compositionRect.width,
 									  height: compositionRect.height)
 
 		ZStack(alignment: .topLeading) {
 			Path { path in
-				let thirdWidth = localComposition.width / 3
-				let thirdHeight = localComposition.height / 3
+				let thirdWidth = localComposition.width / 3 // 3 等分宽度
+				let thirdHeight = localComposition.height / 3 // 3 等分高度
+				// 绘制遮罩区域
 
 				for i in 1..<3 {
 					let x = localComposition.minX + CGFloat(i) * thirdWidth
@@ -44,15 +44,17 @@ struct ContentOverlayView: View {
 			}
 			.stroke(Color.white.opacity(0.75), lineWidth: 1)
 
+			// 绘制对焦点
 			Circle()
 				.strokeBorder(focusColor.opacity(1), lineWidth: 4)
 				.frame(width: 28, height: 28)
 				.position(x: localComposition.midX, y: localComposition.midY)
 
+			// 绘制裁剪框
 			if let rectGlobal = cropRectInView?.intersection(compositionRect),
 			   !rectGlobal.isNull, !rectGlobal.isEmpty {
 				let rect = CGRect(x: rectGlobal.minX - canvasRect.minX,
-								  y: rectGlobal.minY - canvasRect.minY - topAdjustment,
+								  y: rectGlobal.minY - canvasRect.minY,
 								  width: rectGlobal.width,
 								  height: rectGlobal.height)
 				let rounded = Path(roundedRect: rect, cornerRadius: 3)
@@ -62,9 +64,10 @@ struct ContentOverlayView: View {
 					.animation(.easeInOut(duration: 0.18), value: rect)
 			}
 
+			// 绘制跟踪框中心点
 			if let pointGlobal = boxCenterInView {
 				let pointLocal = CGPoint(x: pointGlobal.x - canvasRect.minX,
-										 y: pointGlobal.y - canvasRect.minY - topAdjustment)
+										 y: pointGlobal.y - canvasRect.minY)
 				let clamped = clamp(point: pointLocal, to: localComposition)
 				Circle()
 					.fill(focusColor)
@@ -73,8 +76,8 @@ struct ContentOverlayView: View {
 					.animation(.linear(duration: 0.05), value: clamped)
 			}
 		}
-		.frame(width: canvasRect.width, height: canvasRect.height, alignment: .topLeading)
-		.allowsHitTesting(false)
+		.frame(width: canvasRect.width, height: canvasRect.height, alignment: .topLeading) // 参数解释：设置覆盖层的大小和位置
+		.allowsHitTesting(false) // 禁止交互，确保触摸事件传递到底层视图
 	}
 
 	/// 将点坐标限制在指定矩形范围内。

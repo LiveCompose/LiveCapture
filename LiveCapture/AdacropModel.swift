@@ -100,8 +100,8 @@ final class AdacropModel {
         } catch {
             return VisionContext(faces: [], humans: [], saliencyRects: [], saliencyObservation: nil)
         }
-        let faces = (faceRequest.results as? [VNFaceObservation]) ?? []
-        let humans = (humanRequest.results as? [VNHumanObservation]) ?? []
+        let faces = (faceRequest.results) ?? []
+        let humans = (humanRequest.results) ?? []
         let saliencyObservation = saliencyRequest.results?.first as? VNSaliencyImageObservation
         let faceRects = faces.map { WeightedRect(rect: $0.boundingBox.standardized, weight: CGFloat($0.confidence)) }
         let humanRects = humans.map { WeightedRect(rect: $0.boundingBox.standardized, weight: CGFloat($0.confidence)) }

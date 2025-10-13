@@ -57,7 +57,7 @@ final class CameraManager: NSObject, ObservableObject {
     var onSampleBuffer: ((CMSampleBuffer) -> Void)?
 
     /// 最新的像素缓冲，仅用于调试预览。
-    internal(set) var lastPixelBuffer: CVPixelBuffer? = nil
+    var lastPixelBuffer: CVPixelBuffer? = nil
 
     /// 初始化会话预设与视频输出 delegate。
     override init() {

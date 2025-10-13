@@ -10,44 +10,6 @@ import Foundation
 import CoreGraphics
 import simd
 
-/// 针对二维点的统一响应低通滤波器。
-struct UniformPointSmoother {
-    private let response: Double
-    private var previous: SIMD2<Double>?
-
-    /// 使用指定的响应系数初始化平滑器。
-    init(response: Double) {
-        self.response = UniformPointSmoother.clamped(response)
-    }
-
-    /// 对输入点应用指数平滑，返回滤波后的结果。
-    mutating func filter(_ point: CGPoint) -> CGPoint {
-        let current = SIMD2<Double>(Double(point.x), Double(point.y))
-        guard let prev = previous else {
-            previous = current
-            return point
-        }
-        let t = SIMD2<Double>(repeating: response)
-        let filtered = simd_mix(prev, current, t)
-        previous = filtered
-        return CGPoint(x: CGFloat(filtered.x), y: CGFloat(filtered.y))
-    }
-
-    /// 重置内部状态，可选地指定初始值。
-    mutating func reset(to point: CGPoint? = nil) {
-        if let point {
-            previous = SIMD2<Double>(Double(point.x), Double(point.y))
-        } else {
-            previous = nil
-        }
-    }
-
-    /// 将响应值约束在 [0,1] 范围内。
-    private static func clamped(_ value: Double) -> Double {
-        min(1.0, max(0.0, value))
-    }
-}
-
 /// 针对矩形的统一响应低通滤波器。
 struct UniformRectSmoother {
     private let response: Double

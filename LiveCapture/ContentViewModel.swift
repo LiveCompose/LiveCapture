@@ -9,6 +9,7 @@ import AVFoundation
 import Vision
 import CoreImage
 import ImageIO
+import CoreMotion
 
 #if os(iOS)
 import SwiftUI
@@ -21,12 +22,13 @@ final class ContentViewModel: ObservableObject {
 	private let motion = MotionStabilityMonitor()
 	private let adacrop = AdacropModel()
 	private let templateMatcher = TemplateMatcher()
+	private let boxCenterManager = BoxCenterManager()
 
 	// MARK: - Published state exposed to the view
 
 	@Published private(set) var cropRectInView: CGRect?
-	@Published private(set) var baseBoxCenterInView: CGPoint?
-	@Published private(set) var boxCenterInView: CGPoint?
+	var baseBoxCenterInView: CGPoint? { boxCenterManager.baseCenterInView }
+	var boxCenterInView: CGPoint? { boxCenterManager.currentCenterInView }
 	@Published private(set) var compositionRectInView: CGRect = .zero
 	@Published private(set) var lastCroppedPixelBuffer: CVPixelBuffer?
 	@Published private(set) var isAligned: Bool = false
@@ -76,7 +78,7 @@ final class ContentViewModel: ObservableObject {
 		}
 	}
 
-	// MARK: - Life cycle
+	// MARK: - 生命周期
 
 	init() {
 		zoomState = camera.zoomState
@@ -128,7 +130,7 @@ final class ContentViewModel: ObservableObject {
 	func registerCompositionRect(_ rect: CGRect) {
 		guard compositionRectInView != rect else { return }
 		compositionRectInView = rect
-		updateBoxCenter(withNormalizedOffset: motion.screenOffsetNormalized)
+		boxCenterManager.updateCompositionRect(rect)
 	}
 
 	/// 请求相机捕获一张照片。
@@ -186,8 +188,7 @@ final class ContentViewModel: ObservableObject {
 		isAligned = false
 		lastSimilarity = nil
 		cropRectInView = nil
-		baseBoxCenterInView = nil
-		boxCenterInView = nil
+		boxCenterManager.reset()
 		lastCroppedPixelBuffer = nil
 		autoCaptureWorkItem?.cancel()
 		motion.resetReferenceAttitude()
@@ -214,10 +215,10 @@ final class ContentViewModel: ObservableObject {
 
 	/// 订阅运动监视器的稳定性与偏移更新。
 	private func bindMotion() {
-		motion.$screenOffsetNormalized
+		motion.$deviceMotion
 			.receive(on: DispatchQueue.main)
-			.sink { [weak self] offset in
-				self?.updateBoxCenter(withNormalizedOffset: offset)
+			.sink { [weak self] motion in
+				self?.boxCenterManager.updateCenter(with: motion)
 			}
 			.store(in: &cancellables)
 
@@ -323,8 +324,7 @@ final class ContentViewModel: ObservableObject {
 				DispatchQueue.main.async {
 					self.setStage(.waitingForStability, message: "目标识别失败，等待重试...")
 					self.cropRectInView = nil
-					self.baseBoxCenterInView = nil
-					self.boxCenterInView = nil
+					self.boxCenterManager.reset()
 					self.templateReady = false
 					self.motion.resetReferenceAttitude()
 					self.adacrop.resetSmoothing()
@@ -339,14 +339,11 @@ final class ContentViewModel: ObservableObject {
 																 orientation: orientation) {
 					self.cropRectInView = rectInView
 					let center = CGPoint(x: rectInView.midX, y: rectInView.midY)
-					self.baseBoxCenterInView = center
-					self.boxCenterInView = center
+					self.boxCenterManager.setBaseCenter(center, with: self.motion.deviceMotion?.attitude)
 					self.motion.lockReferenceAttitude()
-					self.updateBoxCenter(withNormalizedOffset: self.motion.screenOffsetNormalized)
 				} else {
 					self.cropRectInView = nil
-					self.baseBoxCenterInView = nil
-					self.boxCenterInView = nil
+					self.boxCenterManager.reset()
 				}
 			}
 
@@ -361,8 +358,7 @@ final class ContentViewModel: ObservableObject {
 					} else {
 						self.templateReady = false
 						self.setStage(.error, message: "模板生成失败，等待重试...")
-						self.baseBoxCenterInView = nil
-						self.boxCenterInView = nil
+						self.boxCenterManager.reset()
 						self.motion.resetReferenceAttitude()
 					}
 					self.detectionInProgress = false
@@ -432,23 +428,6 @@ final class ContentViewModel: ObservableObject {
 	}
 
 	// MARK: - Geometry helpers
-
-	/// 根据稳定监控的偏移更新跟踪框中心。
-	private func updateBoxCenter(withNormalizedOffset offset: CGPoint) {
-		guard let base = baseBoxCenterInView, compositionRectInView != .zero else { return }
-		let maxOffsetX = compositionRectInView.width * 0.4
-		let maxOffsetY = compositionRectInView.height * 0.4
-		let target = CGPoint(x: base.x + offset.x * maxOffsetX,
-							 y: base.y + offset.y * maxOffsetY)
-		let clamped = clamp(point: target, to: compositionRectInView)
-		boxCenterInView = clamped
-	}
-
-	/// 将点限制在构图区域内部。
-	private func clamp(point: CGPoint, to rect: CGRect) -> CGPoint {
-		CGPoint(x: min(max(point.x, rect.minX), rect.maxX),
-				y: min(max(point.y, rect.minY), rect.maxY))
-	}
 
 	/// 将输入像素缓冲旋正并裁剪为 3:4 画幅。
 	private func makeThreeByFourPixelBuffer(from pixelBuffer: CVPixelBuffer,

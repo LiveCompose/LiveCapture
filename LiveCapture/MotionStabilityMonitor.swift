@@ -6,6 +6,7 @@
 import Foundation
 import Combine
 import CoreGraphics
+import CoreMotion
 
 #if os(iOS)
 import CoreMotion
@@ -21,8 +22,8 @@ final class MotionStabilityMonitor: ObservableObject {
     @Published var isStable: Bool = false
     /// 调试说明文字，展示传感器统计信息。
     @Published var debugInfo: String = "初始化中..."
-    /// 陀螺仪映射出的 2D 归一化偏移量。
-    @Published var screenOffsetNormalized: CGPoint = .zero // 陀螺仪转换出的 2D 归一化偏移量
+    /// 原始设备姿态数据。
+	@Published var deviceMotion: CMDeviceMotion?
 
     // configurable - 针对跟踪场景优化的阈值
     var windowSeconds: TimeInterval = 0.8        // 增加窗口时间以获得更稳定的判断
@@ -79,7 +80,7 @@ final class MotionStabilityMonitor: ObservableObject {
             motion.startDeviceMotionUpdates(to: OperationQueue()) { [weak self] data, _ in
                 guard let self, let data else { return }
                 self.dataQueue.async {
-                    self.updateScreenOffset(with: data)
+                    self.updateDeviceMotion(with: data)
                 }
             }
         }
@@ -103,7 +104,7 @@ final class MotionStabilityMonitor: ObservableObject {
         DispatchQueue.main.async { 
             self.isStable = false
             self.debugInfo = "已停止"
-            self.screenOffsetNormalized = .zero
+            self.deviceMotion = nil
         }
     }
 
@@ -115,7 +116,7 @@ final class MotionStabilityMonitor: ObservableObject {
             self.referenceRoll = self.lastRoll
             self.offsetSmoother.reset(to: .zero)
             DispatchQueue.main.async {
-                self.screenOffsetNormalized = .zero
+                self.deviceMotion = nil
             }
         }
     }
@@ -128,32 +129,21 @@ final class MotionStabilityMonitor: ObservableObject {
             self.referenceRoll = nil
             self.offsetSmoother.reset(to: .zero)
             DispatchQueue.main.async {
-                self.screenOffsetNormalized = .zero
+                self.deviceMotion = nil
             }
         }
     }
 
     /// 根据最新陀螺仪姿态计算屏幕坐标系中的偏移。
-    private func updateScreenOffset(with data: CMDeviceMotion) {
+    private func updateDeviceMotion(with data: CMDeviceMotion) {
         // 将陀螺仪的俯仰/横滚角映射到屏幕上的二维偏移
         let pitch = data.attitude.pitch
         let roll = data.attitude.roll
         lastPitch = pitch
         lastRoll = roll
 
-        let refPitch = referencePitch ?? pitch
-        let refRoll = referenceRoll ?? roll
-
-        let deltaPitch = max(-maxAngle, min(maxAngle, pitch - refPitch))
-        let deltaRoll = max(-maxAngle, min(maxAngle, roll - refRoll))
-
-        let offset = CGPoint(x: deltaRoll / maxAngle,
-                             y: deltaPitch / maxAngle)
-
-        let smoothed = offsetSmoother.filter(offset)
-
         DispatchQueue.main.async {
-            self.screenOffsetNormalized = smoothed
+            self.deviceMotion = data
         }
     }
 

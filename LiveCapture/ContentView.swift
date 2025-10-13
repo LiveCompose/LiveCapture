@@ -22,7 +22,7 @@ struct ContentView: View {
     /// 主视图内容，包含顶部控制区、取景区和底部控制栏。
     var body: some View {
         GeometryReader { geo in
-            let safeInsets = geo.safeAreaInsets
+            let safeInsets = geo.safeAreaInsets // 考虑刘海屏等安全区域
 
             ZStack {
                 // 底层黑色背景，扩展到安全区域之外确保覆盖整屏
@@ -31,9 +31,9 @@ struct ContentView: View {
                     .zIndex(0)
 
                 // 底层为相机预览（固定在黑色底之上）
-                previewSection()
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .ignoresSafeArea()
+                CameraPreviewSection()
+                    .frame(width: geo.size.width, height: geo.size.height) // 适配全屏
+                    .ignoresSafeArea() //
                     .zIndex(0)
 
                 // 顶层 UI（所有控制项都叠加在预览之上）
@@ -65,10 +65,10 @@ struct ContentView: View {
     }
 
     /// 构建相机预览与覆盖层的组合视图。
-    private func previewSection() -> some View {
+    private func CameraPreviewSection() -> some View {
         GeometryReader { previewGeo in
-            let compositionRect = Self.compositionRect(in: previewGeo.size)
-            let canvasRect = CGRect(origin: .zero, size: previewGeo.size)
+            let compositionRect = Self.compositionRect(in: previewGeo.size) // 3:4 构图区域
+            let canvasRect = CGRect(origin: .zero, size: previewGeo.size) // 整个画布区域
 
             ZStack {
                 CameraPreviewView(session: viewModel.session)
@@ -79,16 +79,15 @@ struct ContentView: View {
                 ContentOverlayView(
                     compositionRect: compositionRect,
                     canvasRect: canvasRect,
-                    cropRectInView: viewModel.cropRectInView,
-                    boxCenterInView: viewModel.boxCenterInView,
-                    isAligned: viewModel.isAligned,
-                    topAdjustment: 0
+                    cropRectInView: viewModel.cropRectInView, // 裁剪框（可选）
+                    boxCenterInView: viewModel.boxCenterInView, // 跟踪框中心（可选）
+                    isAligned: viewModel.isAligned, // 对齐状态
                 )
             }
             .onAppear {
                 viewModel.registerCompositionRect(compositionRect)
             }
-            .onChange(of: previewGeo.size) { newSize in
+            .onChange(of: previewGeo.size) { _, newSize in
                 viewModel.registerCompositionRect(Self.compositionRect(in: newSize))
             }
         }
