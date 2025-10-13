@@ -34,7 +34,7 @@ extension CameraManager {
     
     /// 读取硬件变焦能力并刷新预设、镜头列表与状态。
     func configureZoomCapabilities(for device: AVCaptureDevice, position: AVCaptureDevice.Position) {
-        let minFactor = max(CGFloat(device.minAvailableVideoZoomFactor), 0.35)
+        let minFactor = max(CGFloat(device.minAvailableVideoZoomFactor), 0.50)
         let maxFactor = CGFloat(device.maxAvailableVideoZoomFactor)
         let switchPoints = device.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat(truncating: $0) }.sorted()
         virtualDeviceSwitchPoints = switchPoints
@@ -92,15 +92,13 @@ extension CameraManager {
         }
         let primaryLens: LensKind = lenses.contains(.front) ? .front : .wide
         append(lens: primaryLens, factor: 1.0, style: .primary)
-        if range.contains(1.5) && !lenses.contains(.telephoto) && primaryLens != .front {
-            append(lens: primaryLens, factor: 1.5, style: .secondary)
-        }
-        if lenses.contains(.telephoto) {
-            append(lens: .telephoto, factor: 3.0, style: .secondary)
-            if range.contains(5.0) {
-                append(lens: .telephoto, factor: 5.0, style: .secondary)
-            }
-        } else if range.contains(2.0) && primaryLens != .front {
+        //if lenses.contains(.telephoto) {
+        //    append(lens: .telephoto, factor: 3.0, style: .secondary)
+        //    if range.contains(5.0) {
+        //        append(lens: .telephoto, factor: 5.0, style: .secondary)
+        //    }
+        //} 
+        if range.contains(2.0) && primaryLens != .front {
             append(lens: primaryLens, factor: 2.0, style: .secondary)
         }
 

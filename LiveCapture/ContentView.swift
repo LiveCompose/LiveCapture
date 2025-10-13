@@ -2,23 +2,21 @@
 //  ContentView.swift
 //  LiveCapture
 //
-//  Created by JettyCoffee on 2025/9/20.
-//
-
-import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
 /// iOS 主取景界面与功能入口，仅在 iOS 平台编译。
 #if os(iOS)
-
+import SwiftUI
+import UIKit
 /// iOS 主取景界面，负责相机预览、模板匹配以及提示反馈。
 struct ContentView: View {
     /// 业务逻辑容器。
     @StateObject private var viewModel = ContentViewModel()
     /// 默认隐藏调试栏，由按钮控制。
     @State private var showDebugInfo = false
+    /// 记录双指缩放起始时的倍率，便于根据手势比例计算目标倍率。
+    @State private var pinchInitialFactor: CGFloat = 1.0
+    /// 标记当前是否正在执行双指缩放，避免重复初始化起始倍率。
+    @State private var pinchActive = false
     @Environment(\.dismiss) private var dismiss // 用于关闭当前视图
 
     /// 主视图内容，包含顶部控制区、取景区和底部控制栏。
@@ -59,11 +57,9 @@ struct ContentView: View {
     private var topSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             topControlBar
-
             if showDebugInfo {
                 debugPanel
             }
-
         }
         .padding(.horizontal, 20)
     }
@@ -96,17 +92,16 @@ struct ContentView: View {
                 viewModel.registerCompositionRect(Self.compositionRect(in: newSize))
             }
         }
+        .gesture(pinchZoomGesture)
     }
 
     /// 底部控制区，包含变焦环与功能按钮。
     private func bottomSection(bottomInset: CGFloat) -> some View {
         VStack(spacing: 18) {
             zoomRing
-
             HStack(spacing: 25) {
                 captureButton
             }
-
             HStack {
                 secondaryCircleButton(systemName: "photo.on.rectangle") {
                     viewModel.openSystemPhotoLibrary()
@@ -118,7 +113,6 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, bottomInset)
     }
 
     /// 变焦环控件，当支持连续变焦或多个预设时显示。
@@ -204,25 +198,15 @@ struct ContentView: View {
         }
     }
 
-    /// 构建一枚图标按钮并绑定操作。
-    private func controlIconButton(systemName: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 22, weight: .regular))
-                .foregroundStyle(.white)
-                .opacity(0.9)
-        }
-    }
-
     /// 构建次要圆形按钮，适用于辅助操作。
     private func secondaryCircleButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Circle()
                 .fill(Color.white.opacity(0.18))
-                .frame(width: 48, height: 48)
+                .frame(width: 50, height: 50)
                 .overlay(
                     Image(systemName: systemName)
-                        .font(.system(size: 24, weight: .medium))
+                        .font(.system(size: 20, weight: .medium))
                         .foregroundStyle(.white)
                 )
         }
@@ -335,6 +319,28 @@ struct ContentView: View {
     /// 触发视图模型的检测状态重置流程。
     private func resetDetectionState() {
         viewModel.resetDetectionState()
+    }
+    /// 双指缩放手势，并实时驱动相机变焦。
+    private var pinchZoomGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { scale in
+                if !pinchActive {
+                    pinchInitialFactor = viewModel.zoomState.currentFactor
+                    pinchActive = true
+                }
+                let target = clampedZoomFactor(for: pinchInitialFactor * scale)
+                viewModel.updateZoomInteractively(to: target)
+            }
+            .onEnded { scale in
+                let target = clampedZoomFactor(for: pinchInitialFactor * scale)
+                viewModel.finalizeZoomInteractively(at: target, smooth: true)
+                pinchActive = false
+            }
+    }
+
+    /// 将目标倍率限制在相机支持的范围内。
+    private func clampedZoomFactor(for factor: CGFloat) -> CGFloat {
+        min(max(factor, viewModel.zoomRange.lowerBound), viewModel.zoomRange.upperBound)
     }
 }
 #endif

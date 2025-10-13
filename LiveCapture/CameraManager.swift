@@ -57,7 +57,7 @@ final class CameraManager: NSObject, ObservableObject {
     var onSampleBuffer: ((CMSampleBuffer) -> Void)?
 
     /// 最新的像素缓冲，仅用于调试预览。
-    private(set) var lastPixelBuffer: CVPixelBuffer? = nil
+    internal(set) var lastPixelBuffer: CVPixelBuffer? = nil
 
     /// 初始化会话预设与视频输出 delegate。
     override init() {
@@ -65,7 +65,7 @@ final class CameraManager: NSObject, ObservableObject {
         session.sessionPreset = .photo
         videoOutput.alwaysDiscardsLateVideoFrames = true
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-        //videoOutput.setSampleBufferDelegate(self, queue: videoOutputQueue)
+        videoOutput.setSampleBufferDelegate(self, queue: videoOutputQueue)
     }
 
     /// 在主线程上更新变焦相关的发布属性，供扩展统一调用。

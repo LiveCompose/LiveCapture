@@ -23,7 +23,6 @@ struct ZoomRingView: View {
 
 	private struct LensButtonItem: Identifiable {
 		let preset: CameraManager.ZoomPreset
-		let iconName: String
 		let title: String
 		var id: CameraManager.ZoomPreset.ID { preset.id }
 	}
@@ -75,8 +74,7 @@ struct ZoomRingView: View {
 
 		return selected.prefix(3).map {
 			LensButtonItem(preset: $0,
-						iconName: $0.lens.symbolName,
-						title: $0.label)
+				title: $0.label)
 		}
 	}
 
@@ -90,24 +88,18 @@ struct ZoomRingView: View {
 		return Button {
 			config.onPresetTap(item.preset)
 		} label: {
-			VStack(spacing: 8) {
-				Circle()
-					.fill(isActive ? activeFill : inactiveFill)
-					.frame(width: 64, height: 64)
-					.overlay(
-						Circle()
-							.stroke(Color.white.opacity(isActive ? 0.0 : 0.4), lineWidth: 1)
+			Circle()
+				.fill(isActive ? activeFill : inactiveFill)
+				.frame(width: 40, height: 40)
+				.overlay(
+					Circle()
+						.stroke(Color.white.opacity(isActive ? 0.0 : 0.4), lineWidth: 1)
 					)
-					.overlay(
-						Image(systemName: item.iconName)
-							.font(.system(size: 24, weight: .semibold))
-							.foregroundStyle(isActive ? activeTextColor : inactiveTextColor)
-					)
-
-				Text(item.title)
-					.font(.system(size: 15, weight: .semibold))
-					.foregroundStyle(isActive ? Color.orange : Color.white.opacity(0.7))
-			}
+				.overlay(
+					Text(item.title)
+						.font(.system(size: 14, weight: .semibold))
+						.foregroundStyle(isActive ? activeTextColor : inactiveTextColor)
+				)
 		}
 		.buttonStyle(.plain)
 		.animation(.easeInOut(duration: 0.12), value: isActive)
