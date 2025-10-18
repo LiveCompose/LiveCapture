@@ -12,38 +12,48 @@ import simd
 #if os(iOS)
 
 /// 管理检测框中心点的状态与更新逻辑。
+///
+/// ## 追踪模型说明
+/// 本管理器使用基于物理的旋转模型来计算追踪点位置：
+///
+/// 1. **基准点记录**：当用户按下追踪按钮时，记录当前检测框的中心点位置（可能在屏幕任意位置）
+/// 2. **相对距离计算**：计算基准点相对于屏幕中心的距离和方向
+/// 3. **距离相关增益**：离屏幕中心越远的点，相机旋转时产生的位移越大（物理正确）
+/// 4. **自适应调整**：根据变焦倍率、主体距离、运动速度动态调整追踪灵敏度
+/// 5. **磁性吸附**：当追踪点接近屏幕中心时，产生吸引力以稳定构图
+///
+/// 这个模型解决了之前"假设初始点在中心"的问题，现在无论初始点在哪里都能正确追踪。
 final class BoxCenterManager: ObservableObject {
 	// MARK: - Published state
 
 	/// 初始检测框在视图中的中心点。
 	@Published private(set) var baseCenterInView: CGPoint?
 
-	/// 根据设备位移调整后,当前检测框在视图中的中心点。
+	/// 根据设备位移调整后,当前检测框在视图中的中心点(应用磁性吸附后)。
 	@Published private(set) var currentCenterInView: CGPoint?
 
 	// MARK: - Private state
+	
+	/// 未应用磁性吸附的实际追踪位置（用于准确的对齐检测）
+	private var rawTrackingPosition: CGPoint?
 
 	private var compositionRect: CGRect = .zero
 	private var referenceAttitude: CMAttitude?
 	private let maxAngle: Double = .pi / 6 // 30 degrees
-	private var offsetSmoother = AdaptivePointSmoother(baseResponse: 0.08) // 🔥 降低基础响应提升平滑度
+	private var offsetSmoother = AdaptivePointSmoother(baseResponse: 0.20) // 🔥 平衡平滑度和响应速度
 	
 	// 新增: 自适应增益控制
 	private var currentZoomFactor: CGFloat = 1.0
-	private var estimatedSubjectDistance: CGFloat = 1.0 // 归一化距离估计
 	
 	// 新增: 速度相关状态
 	private var lastAngularVelocity: CGPoint = .zero
 	private var velocityHistory: [CGPoint] = []
 	private let maxVelocityHistoryCount = 5
 	
-	// 新增: 检测框尺寸用于距离估计
-	private var baseCropBoxSize: CGFloat = 0.0
-	
 	// 🔥 新增: 磁性吸附参数
-	private let magneticThreshold: CGFloat = 15.0     // 吸附开始的距离阈值(points)
-	private let magneticStrength: CGFloat = 0.65      // 吸附强度系数 [0,1]
-	private let snapThreshold: CGFloat = 10.0         // 完全吸附的距离阈值(points)
+	private let magneticThreshold: CGFloat = 25.0     // 吸附开始的距离阈值(points) - 25 开始吸附
+	private let magneticStrength: CGFloat = 0.90      // 吸附强度系数 [0,1] - 强力吸附
+	private let snapThreshold: CGFloat = 5.0          // 完全吸附的距离阈值(points) - 与拍照容差一致
 
 	// MARK: - Public methods
 
@@ -63,23 +73,11 @@ final class BoxCenterManager: ObservableObject {
 	/// - Parameters:
 	///   - center: 从图像中识别出的初始中心点。
 	///   - attitude: 当前的设备姿态。
-	///   - cropBoxSize: 检测到的裁剪框尺寸,用于估计拍摄距离。
-	func setBaseCenter(_ center: CGPoint?, with attitude: CMAttitude?, cropBoxSize: CGSize? = nil) {
+	func setBaseCenter(_ center: CGPoint?, with attitude: CMAttitude?) {
 		baseCenterInView = center
 		currentCenterInView = center
 		referenceAttitude = attitude
 		offsetSmoother.reset(to: CGPoint.zero)
-		
-		// 估计主体距离: 裁剪框越大,说明主体越近或越大
-		if let size = cropBoxSize, compositionRect != .zero {
-			let normalizedArea = (size.width * size.height) / (compositionRect.width * compositionRect.height)
-			// 面积越大,距离越近,偏移增益应该更大
-			estimatedSubjectDistance = sqrt(normalizedArea).clamped(to: 0.3...1.5)
-			baseCropBoxSize = sqrt(size.width * size.height)
-		} else {
-			estimatedSubjectDistance = 1.0
-			baseCropBoxSize = 0.0
-		}
 		
 		velocityHistory.removeAll()
 		lastAngularVelocity = .zero
@@ -89,13 +87,12 @@ final class BoxCenterManager: ObservableObject {
 	func reset() {
 		baseCenterInView = nil
 		currentCenterInView = nil
+		rawTrackingPosition = nil
 		referenceAttitude = nil
 		offsetSmoother.reset()
 		currentZoomFactor = 1.0
-		estimatedSubjectDistance = 1.0
 		velocityHistory.removeAll()
 		lastAngularVelocity = .zero
-		baseCropBoxSize = 0.0
 	}
 
 	/// 根据最新的设备姿态计算并更新中心点。
@@ -130,38 +127,66 @@ final class BoxCenterManager: ObservableObject {
 	}
 
 	/// 根据归一化的屏幕偏移量更新当前中心点。
-	/// - Parameter offset: `MotionStabilityMonitor` 提供的归一化偏移。
+	/// - Parameter offset: 归一化的角度偏移量 [-1, 1]，基于 maxAngle 归一化。
 	private func updateCenter(withNormalizedOffset offset: CGPoint) {
 		guard let base = baseCenterInView, compositionRect != .zero else { return }
 		
-		// 🔥 自适应增益计算
-		// 1. 基础增益: 根据构图区域大小
-		let baseGainX = compositionRect.width * 0.4
-		let baseGainY = compositionRect.height * 0.4
+		// 🔥 基于物理的旋转模型
+		// 相机旋转时，画面中的点会围绕画面中心旋转
+		// 离中心越远的点，相同角度产生的位移越大
 		
-		// 2. 变焦补偿: 长焦时需要更大的追踪范围
-		// 变焦倍率越大,同样的角度变化对应更大的画面位移
-		let zoomGain = 1.0 + (currentZoomFactor - 1.0) * 0.3
+		let screenCenter = CGPoint(x: compositionRect.midX, y: compositionRect.midY)
 		
-		// 3. 距离补偿: 主体越近,追踪灵敏度应该越高
-		let distanceGain = pow(estimatedSubjectDistance, 0.6)
-		
-		// 4. 综合增益
-		let adaptiveGainX = baseGainX * zoomGain * distanceGain
-		let adaptiveGainY = baseGainY * zoomGain * distanceGain
-		
-		// 5. 速度预测补偿(可选,用于减少延迟)
-		let velocityCompensation = calculateVelocityCompensation()
-		
-		var target = CGPoint(
-			x: base.x + offset.x * adaptiveGainX + velocityCompensation.x,
-			y: base.y + offset.y * adaptiveGainY + velocityCompensation.y
+		// 1. 计算基准点相对于屏幕中心的向量
+		let baseVector = CGPoint(
+			x: base.x - screenCenter.x,
+			y: base.y - screenCenter.y
 		)
 		
-		// 🔥 6. 应用磁性吸附效果
-		target = applyMagneticSnap(to: target)
+		// 2. 计算基准点到中心的距离（归一化到屏幕尺寸）
+		let screenRadius = sqrt(pow(compositionRect.width / 2, 2) + pow(compositionRect.height / 2, 2))
+		let distanceToCenter = sqrt(baseVector.x * baseVector.x + baseVector.y * baseVector.y)
+		let normalizedDistance = distanceToCenter / screenRadius
 		
-		currentCenterInView = clamp(point: target, to: compositionRect)
+		// 3. 自适应增益计算
+		// 基础增益: 根据构图区域大小和位置
+		let baseGainX = compositionRect.width * 0.55
+		let baseGainY = compositionRect.height * 0.55
+		
+		// 距离增益: 离中心越远，旋转产生的位移越大（物理正确）
+		// 使用线性关系，但添加最小增益保证中心附近也有响应
+		let distanceGain = 0.6 + normalizedDistance * 0.8 // [0.6, 1.4]
+		
+		// 变焦补偿: 长焦时视角变窄，同样角度对应更大的画面位移
+		let zoomGain = 1.0 + (currentZoomFactor - 1.0) * 0.35
+		
+		// 综合增益（移除主体距离增益）
+		let adaptiveGainX = baseGainX * distanceGain * zoomGain
+		let adaptiveGainY = baseGainY * distanceGain * zoomGain
+		
+		// 4. 计算偏移量
+		let displacement = CGPoint(
+			x: offset.x * adaptiveGainX,
+			y: offset.y * adaptiveGainY
+		)
+		
+		// 5. 速度预测补偿（减少延迟）
+		let velocityCompensation = calculateVelocityCompensation()
+		
+		// 6. 应用偏移到基准点
+		let rawTarget = CGPoint(
+			x: base.x + displacement.x + velocityCompensation.x,
+			y: base.y + displacement.y + velocityCompensation.y
+		)
+		
+		// 7. 保存未吸附的原始位置（用于准确的对齐检测）
+		rawTrackingPosition = clamp(point: rawTarget, to: compositionRect)
+		
+		// 8. 应用磁性吸附效果（当接近中心时）
+		let snappedTarget = applyMagneticSnap(to: rawTarget)
+		
+		// 9. 限制在构图区域内并更新显示位置
+		currentCenterInView = clamp(point: snappedTarget, to: compositionRect)
 	}
 	
 	/// 应用磁性吸附效果,当追踪点接近中心时产生吸引力。
@@ -180,13 +205,16 @@ final class BoxCenterManager: ObservableObject {
 			return centerPoint
 		}
 		
-		// 如果距离在磁性范围内,应用渐进吸附
+		// 如果距离在磁性范围内,应用渐进非线性吸附
 		if distance < magneticThreshold {
-			// 计算吸附系数: 距离越近,吸附越强
-			let ratio = (magneticThreshold - distance) / (magneticThreshold - snapThreshold)
-			let attractionStrength = pow(ratio, 1.5) * magneticStrength
+			// 计算归一化距离: 0 = 最近(snapThreshold), 1 = 最远(magneticThreshold)
+			let normalized = ((distance - snapThreshold) / (magneticThreshold - snapThreshold)).clamped(to: 0.0...1.0)
 			
-			// 向中心移动
+			// 🔥 使用指数衰减曲线: 越接近中心,吸附力越强 (加速吸附)
+			// pow(1-x, 0.5) 创建一个凹函数,让最后阶段加速
+			let easeFactor = 1.0 - pow(normalized, 0.5)
+			let attractionStrength = easeFactor * magneticStrength
+			
 			let attractedX = point.x - dx * attractionStrength
 			let attractedY = point.y - dy * attractionStrength
 			
@@ -208,8 +236,8 @@ final class BoxCenterManager: ObservableObject {
 		let count = CGFloat(velocityHistory.count)
 		let normalizedVelocity = CGPoint(x: avgVelocity.x / count, y: avgVelocity.y / count)
 		
-		// 速度补偿系数: 根据平滑器的响应时间估算延迟
-		let compensationFactor: CGFloat = 0.08 * (1.0 / offsetSmoother.currentResponse)
+		// 速度补偿系数: 根据平滑器的响应时间估算延迟 (降低系数减少抖动)
+		let compensationFactor: CGFloat = 0.04 * (1.0 / offsetSmoother.currentResponse)
 		
 		return CGPoint(
 			x: normalizedVelocity.x * compensationFactor * compositionRect.width,
@@ -236,16 +264,18 @@ final class BoxCenterManager: ObservableObject {
 	// MARK: - Public alignment check
 	
 	/// 检查当前追踪点是否与屏幕中心对齐。
-	/// - Parameter tolerance: 对齐容差(points),默认为 25.0。
+	/// - Parameter tolerance: 对齐容差(points),默认为 5.0。
 	/// - Returns: 如果追踪点在容差范围内,返回 true。
-	func isAlignedWithCenter(tolerance: CGFloat = 25.0) -> Bool {
-		guard let current = currentCenterInView, compositionRect != .zero else {
+	/// - Note: 使用未吸附的原始位置进行检测，避免磁性吸附导致的提前触发。
+	func isAlignedWithCenter(tolerance: CGFloat = 5.0) -> Bool {
+		// 使用原始位置而不是吸附后的位置
+		guard let rawPosition = rawTrackingPosition, compositionRect != .zero else {
 			return false
 		}
 		
 		let centerPoint = CGPoint(x: compositionRect.midX, y: compositionRect.midY)
-		let dx = current.x - centerPoint.x
-		let dy = current.y - centerPoint.y
+		let dx = rawPosition.x - centerPoint.x
+		let dy = rawPosition.y - centerPoint.y
 		let distance = sqrt(dx * dx + dy * dy)
 		
 		return distance <= tolerance
@@ -253,14 +283,16 @@ final class BoxCenterManager: ObservableObject {
 	
 	/// 获取当前追踪点与中心的距离。
 	/// - Returns: 距离值(points),如果追踪点不存在则返回 nil。
+	/// - Note: 使用未吸附的原始位置进行计算，反映真实距离。
 	func distanceToCenter() -> CGFloat? {
-		guard let current = currentCenterInView, compositionRect != .zero else {
+		// 使用原始位置而不是吸附后的位置
+		guard let rawPosition = rawTrackingPosition, compositionRect != .zero else {
 			return nil
 		}
 		
 		let centerPoint = CGPoint(x: compositionRect.midX, y: compositionRect.midY)
-		let dx = current.x - centerPoint.x
-		let dy = current.y - centerPoint.y
+		let dx = rawPosition.x - centerPoint.x
+		let dy = rawPosition.y - centerPoint.y
 		
 		return sqrt(dx * dx + dy * dy)
 	}
@@ -282,10 +314,10 @@ struct AdaptivePointSmoother {
 	private var previous: SIMD2<Double>?
 	
 	// 🔥 优化速度相关参数,提供更好的平滑度
-	private let lowSpeedThreshold: Double = 0.1      // 低速阈值(rad/s) - 降低以更快进入平滑模式
-	private let highSpeedThreshold: Double = 7.5     // 高速阈值(rad/s) - 降低以避免过度响应
-	private let minResponse: Double = 0.05           // 最小响应(快速追踪) - 降低提升平滑度
-	private let maxResponse: Double = 0.15           // 最大响应(平滑追踪) - 降低提升平滑度
+	private let lowSpeedThreshold: Double = 0.15     // 低速阈值(rad/s) - 提高以减少对微小抖动的响应
+	private let highSpeedThreshold: Double = 3.0     // 高速阈值(rad/s) - 降低快速响应阈值
+	private let minResponse: Double = 0.12           // 最小响应(快速追踪) - 降低让磁吸更快
+	private let maxResponse: Double = 0.22           // 最大响应(平滑追踪) - 平衡平滑度和响应性
 
 	/// 使用指定的基础响应系数初始化平滑器。
 	init(baseResponse: Double) {

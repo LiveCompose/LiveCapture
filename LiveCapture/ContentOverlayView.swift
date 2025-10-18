@@ -14,10 +14,26 @@ struct ContentOverlayView: View {
 	let cropRectInView: CGRect?
 	let boxCenterInView: CGPoint?
 	let isAligned: Bool
+	let distanceToCenter: CGFloat? // 新增：传入距离用于颜色渐变
 
 	/// 绘制覆盖层内容，包括构图线、裁剪框与对齐指示。
 	var body: some View {
-		let focusColor: Color = isAligned ? .green : .white
+		// 🔥 根据距离计算渐变颜色
+		let focusColor: Color = {
+			guard let distance = distanceToCenter else {
+				return .white
+			}
+			// 距离范围: 0-25 points
+			// 0-5: 完全绿色 (对齐)
+			// 5-25: 从绿色渐变到白色
+			let normalized = min(max((distance - 5.0) / 20.0, 0.0), 1.0)
+			let greenAmount = 1.0 - normalized
+			return Color(
+				red: normalized,
+				green: 1.0,
+				blue: normalized
+			).opacity(0.7 + greenAmount * 0.3) // 绿色时更不透明
+		}()
 
 		// 将外部传入的全局坐标转换为 Canvas 本地坐标
 		let localComposition = CGRect(x: compositionRect.minX - canvasRect.minX,
@@ -46,23 +62,9 @@ struct ContentOverlayView: View {
 
 			// 绘制对焦点
 			Circle()
-				.strokeBorder(focusColor.opacity(1), lineWidth: 4)
-				.frame(width: 28, height: 28)
+				.strokeBorder(focusColor.opacity(1), lineWidth: 5)
+				.frame(width: 24, height: 24)
 				.position(x: localComposition.midX, y: localComposition.midY)
-
-			// 绘制裁剪框
-			if let rectGlobal = cropRectInView?.intersection(compositionRect),
-			   !rectGlobal.isNull, !rectGlobal.isEmpty {
-				let rect = CGRect(x: rectGlobal.minX - canvasRect.minX,
-								  y: rectGlobal.minY - canvasRect.minY,
-								  width: rectGlobal.width,
-								  height: rectGlobal.height)
-				let rounded = Path(roundedRect: rect, cornerRadius: 3)
-				rounded
-					.fill(Color.green.opacity(0.18))
-					.overlay(rounded.stroke(Color.green.opacity(0.85), lineWidth: 2))
-					.animation(.easeInOut(duration: 0.18), value: rect)
-			}
 
 			// 绘制跟踪框中心点
 			if let pointGlobal = boxCenterInView {
@@ -73,7 +75,7 @@ struct ContentOverlayView: View {
 					.fill(focusColor)
 					.frame(width: 12, height: 12)
 					.position(clamped)
-					.animation(.linear(duration: 0.05), value: clamped)
+					.animation(.linear(duration: 1.0), value: clamped)
 			}
 		}
 		.frame(width: canvasRect.width, height: canvasRect.height, alignment: .topLeading) // 参数解释：设置覆盖层的大小和位置

@@ -82,6 +82,7 @@ struct ContentView: View {
                     cropRectInView: viewModel.cropRectInView, // 裁剪框（可选）
                     boxCenterInView: viewModel.boxCenterInView, // 跟踪框中心（可选）
                     isAligned: viewModel.isAligned, // 对齐状态
+                    distanceToCenter: viewModel.distanceToCenter // 距离中心的距离（用于颜色渐变）
                 )
             }
             .onAppear {

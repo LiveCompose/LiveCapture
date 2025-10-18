@@ -60,7 +60,7 @@ final class ContentViewModel: ObservableObject {
 	// MARK: - Private State
 
 	private static let ciContext = CIContext()
-	private let alignmentTolerance: CGFloat = 25.0
+	private let alignmentTolerance: CGFloat = 15.0 // 对齐容差 (points)
 	private var detectionInProgress: Bool = false
 	private var cancellables: Set<AnyCancellable> = []
 	private var autoCaptureWorkItem: DispatchWorkItem?
@@ -353,7 +353,6 @@ final class ContentViewModel: ObservableObject {
 					self.boxCenterManager.setBaseCenter(
 						center,
 						with: self.motion.deviceMotion?.attitude,
-						cropBoxSize: rectInView.size
 					)
 					self.motion.lockReferenceAttitude()
 					
