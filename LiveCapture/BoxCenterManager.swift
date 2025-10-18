@@ -26,7 +26,7 @@ final class BoxCenterManager: ObservableObject {
 	private var compositionRect: CGRect = .zero
 	private var referenceAttitude: CMAttitude?
 	private let maxAngle: Double = .pi / 6 // 30 degrees
-	private var offsetSmoother = AdaptivePointSmoother(baseResponse: 0.18) // 🔥 降低基础响应提升平滑度
+	private var offsetSmoother = AdaptivePointSmoother(baseResponse: 0.08) // 🔥 降低基础响应提升平滑度
 	
 	// 新增: 自适应增益控制
 	private var currentZoomFactor: CGFloat = 1.0
@@ -282,10 +282,10 @@ struct AdaptivePointSmoother {
 	private var previous: SIMD2<Double>?
 	
 	// 🔥 优化速度相关参数,提供更好的平滑度
-	private let lowSpeedThreshold: Double = 0.3      // 低速阈值(rad/s) - 降低以更快进入平滑模式
-	private let highSpeedThreshold: Double = 2.5     // 高速阈值(rad/s) - 降低以避免过度响应
-	private let minResponse: Double = 0.12           // 最小响应(快速追踪) - 降低提升平滑度
-	private let maxResponse: Double = 0.28           // 最大响应(平滑追踪) - 降低提升平滑度
+	private let lowSpeedThreshold: Double = 0.1      // 低速阈值(rad/s) - 降低以更快进入平滑模式
+	private let highSpeedThreshold: Double = 7.5     // 高速阈值(rad/s) - 降低以避免过度响应
+	private let minResponse: Double = 0.05           // 最小响应(快速追踪) - 降低提升平滑度
+	private let maxResponse: Double = 0.15           // 最大响应(平滑追踪) - 降低提升平滑度
 
 	/// 使用指定的基础响应系数初始化平滑器。
 	init(baseResponse: Double) {
