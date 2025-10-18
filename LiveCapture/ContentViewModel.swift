@@ -252,7 +252,10 @@ final class ContentViewModel: ObservableObject {
 		camera.$zoomState
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] state in
-				self?.zoomState = state
+				guard let self else { return }
+				self.zoomState = state
+				// 🔥 更新追踪管理器的变焦倍率
+				self.boxCenterManager.updateZoomFactor(state.currentFactor)
 			}
 			.store(in: &cancellables)
 
@@ -339,7 +342,10 @@ final class ContentViewModel: ObservableObject {
 																 orientation: orientation) {
 					self.cropRectInView = rectInView
 					let center = CGPoint(x: rectInView.midX, y: rectInView.midY)
-					self.boxCenterManager.setBaseCenter(center, with: self.motion.deviceMotion?.attitude)
+					// 🔥 传递裁剪框尺寸用于距离估计
+					self.boxCenterManager.setBaseCenter(center, 
+														with: self.motion.deviceMotion?.attitude,
+														cropBoxSize: rectInView.size)
 					self.motion.lockReferenceAttitude()
 				} else {
 					self.cropRectInView = nil
