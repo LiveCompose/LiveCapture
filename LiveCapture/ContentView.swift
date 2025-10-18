@@ -143,27 +143,24 @@ struct ContentView: View {
     /// 顶部控制栏，包含返回、重置、调试显示和菜单操作。
     private var topControlBar: some View {
         ZStack {
-            // 左右两端的按钮使用 HStack 布局，确保左侧按钮左对齐、右侧菜单右对齐
-            HStack {
-                topCircleButton(systemName: "chevron.left") { dismiss() }
+			// 左右两端的按钮使用 HStack 布局，确保左侧按钮左对齐、右侧菜单右对齐
+			HStack {
+				topCircleButton(systemName: "arrow.clockwise") { 
+					viewModel.resetDetectionState()
+				}
 
-                Spacer()
-
-                Menu {
-                    Button {
-                        showDebugInfo.toggle()
-                    } label: {
-                        Label(showDebugInfo ? "隐藏调试模式" : "打开调试模式", systemImage: showDebugInfo ? "eye.slash" : "eye")
-                    }
-
-                    Button { resetDetectionState() } label: {
-                        Label("刷新状态", systemImage: "arrow.counterclockwise")
-                    }
-
-                } label: {
-                    topCircleLabel(systemName: "ellipsis")
-                }
-            }
+				Spacer()
+				
+				Menu {
+					Button {
+						showDebugInfo.toggle()
+					} label: {
+						Label(showDebugInfo ? "隐藏调试模式" : "打开调试模式", systemImage: showDebugInfo ? "eye.slash" : "eye")
+					}
+				} label: {
+					topCircleLabel(systemName: "ellipsis")
+				}
+			}
             // 中心显示进度条，使用 ZStack 居中叠放，给进度条左右留出间距以避免与两侧按钮重叠
             statusProgressView
                 .padding(.horizontal, 64)
@@ -258,13 +255,13 @@ struct ContentView: View {
                         }
                     }
                     HStack {
-                        if let sim = viewModel.lastSimilarity {
-                            Text("相似度: \(String(format: "%.2f", sim)) / \(String(format: "%.2f", viewModel.similarityThreshold))")
+                        if let distance = viewModel.distanceToCenter {
+                            Text("距离中心: \(String(format: "%.1f", distance)) pts")
                         } else {
-                            Text("相似度: --")
+                            Text("距离中心: --")
                         }
                         Spacer()
-                        Text(viewModel.templateReady ? "模板: 已就绪" : "模板: 未就绪")
+                        Text(viewModel.detectionReady ? "检测: 已就绪" : "检测: 未就绪")
                     }
                 }
                 .font(.caption2)
@@ -279,30 +276,6 @@ struct ContentView: View {
             .padding(12)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal, 16)
-
-            #if canImport(UIKit)
-            HStack(spacing: 8) {
-                if let img = viewModel.templatePreviewImage() {
-                    Image(uiImage: img)
-                        .resizable()
-                        .interpolation(.none)
-                        .antialiased(false)
-                        .frame(width: 64, height: 64)
-                        .border(Color.white.opacity(0.8), width: 1)
-                        .overlay(Text("T").font(.caption2).padding(2), alignment: .topLeading)
-                }
-                if let centerImg = viewModel.centerPreviewImage() {
-                    Image(uiImage: centerImg)
-                        .resizable()
-                        .interpolation(.none)
-                        .antialiased(false)
-                        .frame(width: 64, height: 64)
-                        .border(Color.white.opacity(0.8), width: 1)
-                        .overlay(Text("C").font(.caption2).padding(2), alignment: .topLeading)
-                }
-            }
-            .padding(.horizontal, 16)
-            #endif
         }
     }
 
@@ -315,10 +288,6 @@ struct ContentView: View {
         return CGRect(x: 0, y: originY, width: width, height: height)
     }
 
-    /// 触发视图模型的检测状态重置流程。
-    private func resetDetectionState() {
-        viewModel.resetDetectionState()
-    }
     /// 双指缩放手势，并实时驱动相机变焦。
     private var pinchZoomGesture: some Gesture {
         MagnificationGesture()

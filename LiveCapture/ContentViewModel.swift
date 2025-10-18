@@ -20,32 +20,47 @@ final class ContentViewModel: ObservableObject {
 
 	private(set) var camera = CameraManager()
 	private let motion = MotionStabilityMonitor()
-	private let adacrop = AdacropModel()
-	private let templateMatcher = TemplateMatcher()
+	private let aestheticDetector = AestheticCropDetector()
 	private let boxCenterManager = BoxCenterManager()
 
 	// MARK: - Published state exposed to the view
 
+	// MARK: - Published State
+	
 	@Published private(set) var cropRectInView: CGRect?
-	var baseBoxCenterInView: CGPoint? { boxCenterManager.baseCenterInView }
-	var boxCenterInView: CGPoint? { boxCenterManager.currentCenterInView }
+	@Published private(set) var initialCropRectInView: CGRect?
 	@Published private(set) var compositionRectInView: CGRect = .zero
-	@Published private(set) var lastCroppedPixelBuffer: CVPixelBuffer?
 	@Published private(set) var isAligned: Bool = false
 	@Published private(set) var showSaveToast: Bool = false
 	@Published private(set) var debugMessage: String = "等待相机启动..."
 	@Published private(set) var pipelineStage: PipelineStage = .idle
-	@Published private(set) var lastSimilarity: Float?
-	@Published private(set) var templateReady: Bool = false
+	@Published private(set) var distanceToCenter: CGFloat?
+	@Published private(set) var detectionReady: Bool = false
 	@Published private(set) var motionIsStable: Bool = false
 	@Published private(set) var zoomState: CameraManager.ZoomState
 	@Published private(set) var zoomPresets: [CameraManager.ZoomPreset]
 	@Published private(set) var zoomRange: ClosedRange<CGFloat>
+	
+	// MARK: - Computed Properties
+	
+	var baseBoxCenterInView: CGPoint? { boxCenterManager.baseCenterInView }
+	var boxCenterInView: CGPoint? { boxCenterManager.currentCenterInView }
+	
+	var adjustedCropRectInView: CGRect? {
+		guard let initialRect = initialCropRectInView,
+			  let baseCenter = baseBoxCenterInView,
+			  let currentCenter = boxCenterInView else {
+			return nil
+		}
+		let dx = currentCenter.x - baseCenter.x
+		let dy = currentCenter.y - baseCenter.y
+		return initialRect.offsetBy(dx: dx, dy: dy)
+	}
 
-	// MARK: - Private state
+	// MARK: - Private State
 
 	private static let ciContext = CIContext()
-	private let similarityThresholdInternal: Float = 0.84
+	private let alignmentTolerance: CGFloat = 25.0
 	private var detectionInProgress: Bool = false
 	private var cancellables: Set<AnyCancellable> = []
 	private var autoCaptureWorkItem: DispatchWorkItem?
@@ -78,7 +93,7 @@ final class ContentViewModel: ObservableObject {
 		}
 	}
 
-	// MARK: - 生命周期
+	// MARK: - Lifecycle
 
 	init() {
 		zoomState = camera.zoomState
@@ -92,10 +107,9 @@ final class ContentViewModel: ObservableObject {
 		autoCaptureWorkItem?.cancel()
 	}
 
-	// MARK: - Exposed helpers
+	// MARK: - Public API
 
 	var session: AVCaptureSession { camera.session }
-	var similarityThreshold: Float { similarityThresholdInternal }
 	var pipelineProgress: Double { pipelineStage.progress }
 
 	/// 处理视图出现事件，启动相机与传感器。
@@ -182,34 +196,18 @@ final class ContentViewModel: ObservableObject {
 		#endif
 	}
 
-	/// 手动重置模板匹配与检测状态。
+	/// 重置检测状态
 	func resetDetectionState() {
-		templateReady = false
+		detectionReady = false
 		isAligned = false
-		lastSimilarity = nil
 		cropRectInView = nil
+		initialCropRectInView = nil
 		boxCenterManager.reset()
-		lastCroppedPixelBuffer = nil
 		autoCaptureWorkItem?.cancel()
 		motion.resetReferenceAttitude()
-		adacrop.resetSmoothing()
-		templateMatcher.resetTemplate()
 		detectionInProgress = false
 		setStage(.waitingForStability, message: "已重置检测，等待稳定...")
 	}
-
-	#if canImport(UIKit)
-	/// 获取模板的调试预览图。
-	func templatePreviewImage() -> UIImage? {
-		templateMatcher.templateUIImage()
-	}
-
-	/// 获取 3:4 裁剪中心的调试预览图。
-	func centerPreviewImage() -> UIImage? {
-		guard let pixel = lastCroppedPixelBuffer else { return nil }
-		return templateMatcher.centerUIImage(from: pixel)
-	}
-	#endif
 
 	// MARK: - Bindings
 
@@ -218,7 +216,21 @@ final class ContentViewModel: ObservableObject {
 		motion.$deviceMotion
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] motion in
-				self?.boxCenterManager.updateCenter(with: motion)
+				guard let self else { return }
+				self.boxCenterManager.updateCenter(with: motion)
+				
+				// 更新距离信息
+				self.distanceToCenter = self.boxCenterManager.distanceToCenter()
+				
+				// 更新裁切框位置以跟随追踪点
+				if let adjusted = self.adjustedCropRectInView {
+					self.cropRectInView = adjusted
+				}
+				
+				// 如果检测已就绪，使用基于距离的对齐检测
+				if self.detectionReady {
+					self.checkAlignmentByDistance()
+				}
 			}
 			.store(in: &cancellables)
 
@@ -254,7 +266,6 @@ final class ContentViewModel: ObservableObject {
 			.sink { [weak self] state in
 				guard let self else { return }
 				self.zoomState = state
-				// 🔥 更新追踪管理器的变焦倍率
 				self.boxCenterManager.updateZoomFactor(state.currentFactor)
 			}
 			.store(in: &cancellables)
@@ -274,9 +285,9 @@ final class ContentViewModel: ObservableObject {
 			.store(in: &cancellables)
 	}
 
-	// MARK: - Camera processing pipeline
+	// MARK: - Camera Processing
 
-	/// 设置相机帧回调以驱动模板检测流程。
+	/// 设置相机帧回调
 	private func setupCallbacks() {
 		camera.onSampleBuffer = { [weak self] sample in
 			guard let self else { return }
@@ -284,7 +295,7 @@ final class ContentViewModel: ObservableObject {
 		}
 	}
 
-	/// 处理单帧采样数据，串联稳定性、裁剪与模板逻辑。
+		/// 处理单帧采样数据
 	private func handleSampleBuffer(_ sample: CMSampleBuffer) {
 		guard let rawPixel = CMSampleBufferGetImageBuffer(sample) else { return }
 		let orientation = pixelOrientation(for: rawPixel)
@@ -296,109 +307,71 @@ final class ContentViewModel: ObservableObject {
 			return
 		}
 
-		guard let compositionPixel = makeThreeByFourPixelBuffer(from: rawPixel, orientation: orientation) else {
+		guard let compositionPixel = makeCompositionPixelBuffer(from: rawPixel, orientation: orientation) else {
 			DispatchQueue.main.async {
-				self.setStage(.error, message: "无法裁剪 3:4 画面")
+				self.setStage(.error, message: "无法处理画面")
 			}
 			return
 		}
 
-		if !templateReady && !detectionInProgress {
+		// 只在未检测时执行一次检测，之后依靠距离对齐
+		if !detectionReady && !detectionInProgress {
 			DispatchQueue.main.async {
 				self.setStage(.detectingRegion, message: "设备已稳定，开始识别目标区域...")
-				self.lastCroppedPixelBuffer = compositionPixel
 				self.detectionInProgress = true
 			}
-			detectCropOnce(using: compositionPixel, orientation: orientation)
-		} else if templateReady {
-			evaluateTemplateSimilarity(with: compositionPixel)
-			DispatchQueue.main.async {
-				self.lastCroppedPixelBuffer = compositionPixel
-			}
+			detectCropRegion(using: compositionPixel, orientation: orientation)
 		}
 	}
 
-	/// 对单帧图像执行自适应裁剪检测。
-	private func detectCropOnce(using pixel: CVPixelBuffer,
-								orientation: CGImagePropertyOrientation) {
-		adacrop.predictCropBox(pixelBuffer: pixel, orientation: orientation) { [weak self] crop in
-			guard let self else { return }
-			guard let crop else {
+	/// 执行美学裁切检测
+	private func detectCropRegion(using pixel: CVPixelBuffer, orientation: CGImagePropertyOrientation) {
+		// 计算当前构图区域的宽高比
+		let aspectRatio: CGFloat = compositionRectInView != .zero 
+			? compositionRectInView.width / compositionRectInView.height 
+			: 3.0 / 4.0
+		
+		aestheticDetector.detectBestCrop(
+			in: pixel,
+			orientation: orientation,
+			targetAspectRatio: aspectRatio
+		) { [weak self] crop in
+			guard let self, let crop else {
 				DispatchQueue.main.async {
-					self.setStage(.waitingForStability, message: "目标识别失败，等待重试...")
-					self.cropRectInView = nil
-					self.boxCenterManager.reset()
-					self.templateReady = false
-					self.motion.resetReferenceAttitude()
-					self.adacrop.resetSmoothing()
-					self.detectionInProgress = false
-					self.templateMatcher.resetTemplate()
+					self?.setStage(.waitingForStability, message: "目标识别失败，等待重试...")
+					self?.resetDetectionState()
 				}
 				return
 			}
 
 			DispatchQueue.main.async {
-				if let rectInView = self.rectInCompositionSpace(from: crop.rectInNormalizedImage,
-																 orientation: orientation) {
+				if let rectInView = self.rectInCompositionSpace(from: crop.rect, orientation: orientation) {
+					self.initialCropRectInView = rectInView
 					self.cropRectInView = rectInView
+					
 					let center = CGPoint(x: rectInView.midX, y: rectInView.midY)
-					// 🔥 传递裁剪框尺寸用于距离估计
-					self.boxCenterManager.setBaseCenter(center, 
-														with: self.motion.deviceMotion?.attitude,
-														cropBoxSize: rectInView.size)
+					self.boxCenterManager.setBaseCenter(
+						center,
+						with: self.motion.deviceMotion?.attitude,
+						cropBoxSize: rectInView.size
+					)
 					self.motion.lockReferenceAttitude()
+					
+					self.detectionReady = true
+					self.setStage(.templateReady, message: "目标已锁定: \(crop.detectionType)，移动设备对齐中心圆")
+					self.isAligned = false
 				} else {
+					self.initialCropRectInView = nil
 					self.cropRectInView = nil
 					self.boxCenterManager.reset()
 				}
-			}
-
-			self.templateMatcher.setTemplate(from: pixel, normalizedRegion: crop.rectInNormalizedImage) { [weak self] ok in
-				guard let self else { return }
-				DispatchQueue.main.async {
-					if ok {
-						self.templateReady = true
-						self.setStage(.templateReady, message: "模板已生成：\(crop.detectionType)，开始相似度匹配")
-						self.lastSimilarity = nil
-						self.isAligned = false
-					} else {
-						self.templateReady = false
-						self.setStage(.error, message: "模板生成失败，等待重试...")
-						self.boxCenterManager.reset()
-						self.motion.resetReferenceAttitude()
-					}
-					self.detectionInProgress = false
-				}
+				
+				self.detectionInProgress = false
 			}
 		}
 	}
 
-	/// 根据模板向量计算当前画面的相似度。
-	private func evaluateTemplateSimilarity(with pixel: CVPixelBuffer) {
-		guard let sim = templateMatcher.similarityWithCenter(of: pixel) else {
-			DispatchQueue.main.async {
-				self.setStage(.error, message: "相似度计算失败")
-				self.isAligned = false
-				self.lastSimilarity = nil
-				self.cancelAutoCapture()
-			}
-			return
-		}
-
-		DispatchQueue.main.async {
-			self.lastSimilarity = sim
-			let alignedNow = sim >= self.similarityThresholdInternal
-			if alignedNow && !self.isAligned {
-				self.setStage(.aligning, message: "对准成功")
-				self.scheduleAutoCapture()
-			} else if alignedNow {
-				self.setStage(.aligning, message: "保持对准")
-			} 
-			self.isAligned = alignedNow
-		}
-	}
-
-	/// 安排自动拍照任务，确保对准后短延迟触发。
+	/// 安排自动拍照任务,确保对准后短延迟触发。
 	private func scheduleAutoCapture() {
 		autoCaptureWorkItem?.cancel()
 		let work = DispatchWorkItem { [weak self] in
@@ -417,6 +390,24 @@ final class ContentViewModel: ObservableObject {
 		autoCaptureWorkItem?.cancel()
 		autoCaptureWorkItem = nil
 	}
+	
+	// MARK: - Alignment Detection
+	
+	/// 检查追踪点是否与中心对齐
+	private func checkAlignmentByDistance() {
+		let alignedNow = boxCenterManager.isAlignedWithCenter(tolerance: alignmentTolerance)
+		
+		if alignedNow && !isAligned {
+			setStage(.aligning, message: "对准成功")
+			scheduleAutoCapture()
+		} else if alignedNow {
+			setStage(.aligning, message: "保持对准")
+		} else if !alignedNow && isAligned {
+			cancelAutoCapture()
+		}
+		
+		isAligned = alignedNow
+	}
 
 	/// 切换管线阶段并可选更新调试信息。
 	private func setStage(_ stage: PipelineStage, message: String? = nil) {
@@ -433,10 +424,10 @@ final class ContentViewModel: ObservableObject {
 		}
 	}
 
-	// MARK: - Geometry helpers
+	// MARK: - Geometry Helpers
 
-	/// 将输入像素缓冲旋正并裁剪为 3:4 画幅。
-	private func makeThreeByFourPixelBuffer(from pixelBuffer: CVPixelBuffer,
+	/// 将输入像素缓冲旋正并裁剪为构图画幅
+	private func makeCompositionPixelBuffer(from pixelBuffer: CVPixelBuffer,
 											orientation: CGImagePropertyOrientation) -> CVPixelBuffer? {
 		let orientedImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation)
 		let extent = orientedImage.extent

@@ -26,7 +26,7 @@ final class BoxCenterManager: ObservableObject {
 	private var compositionRect: CGRect = .zero
 	private var referenceAttitude: CMAttitude?
 	private let maxAngle: Double = .pi / 6 // 30 degrees
-	private var offsetSmoother = AdaptivePointSmoother(baseResponse: 0.25)
+	private var offsetSmoother = AdaptivePointSmoother(baseResponse: 0.18) // 🔥 降低基础响应提升平滑度
 	
 	// 新增: 自适应增益控制
 	private var currentZoomFactor: CGFloat = 1.0
@@ -39,6 +39,11 @@ final class BoxCenterManager: ObservableObject {
 	
 	// 新增: 检测框尺寸用于距离估计
 	private var baseCropBoxSize: CGFloat = 0.0
+	
+	// 🔥 新增: 磁性吸附参数
+	private let magneticThreshold: CGFloat = 15.0     // 吸附开始的距离阈值(points)
+	private let magneticStrength: CGFloat = 0.65      // 吸附强度系数 [0,1]
+	private let snapThreshold: CGFloat = 10.0         // 完全吸附的距离阈值(points)
 
 	// MARK: - Public methods
 
@@ -148,12 +153,48 @@ final class BoxCenterManager: ObservableObject {
 		// 5. 速度预测补偿(可选,用于减少延迟)
 		let velocityCompensation = calculateVelocityCompensation()
 		
-		let target = CGPoint(
+		var target = CGPoint(
 			x: base.x + offset.x * adaptiveGainX + velocityCompensation.x,
 			y: base.y + offset.y * adaptiveGainY + velocityCompensation.y
 		)
 		
+		// 🔥 6. 应用磁性吸附效果
+		target = applyMagneticSnap(to: target)
+		
 		currentCenterInView = clamp(point: target, to: compositionRect)
+	}
+	
+	/// 应用磁性吸附效果,当追踪点接近中心时产生吸引力。
+	/// - Parameter point: 原始追踪点位置。
+	/// - Returns: 应用吸附后的点位置。
+	private func applyMagneticSnap(to point: CGPoint) -> CGPoint {
+		guard compositionRect != .zero else { return point }
+		
+		let centerPoint = CGPoint(x: compositionRect.midX, y: compositionRect.midY)
+		let dx = point.x - centerPoint.x
+		let dy = point.y - centerPoint.y
+		let distance = sqrt(dx * dx + dy * dy)
+		
+		// 如果距离小于完全吸附阈值,直接吸附到中心
+		if distance < snapThreshold {
+			return centerPoint
+		}
+		
+		// 如果距离在磁性范围内,应用渐进吸附
+		if distance < magneticThreshold {
+			// 计算吸附系数: 距离越近,吸附越强
+			let ratio = (magneticThreshold - distance) / (magneticThreshold - snapThreshold)
+			let attractionStrength = pow(ratio, 1.5) * magneticStrength
+			
+			// 向中心移动
+			let attractedX = point.x - dx * attractionStrength
+			let attractedY = point.y - dy * attractionStrength
+			
+			return CGPoint(x: attractedX, y: attractedY)
+		}
+		
+		// 距离太远,不应用吸附
+		return point
 	}
 	
 	/// 计算基于速度的预测补偿,减少追踪延迟。
@@ -191,6 +232,38 @@ final class BoxCenterManager: ObservableObject {
 		CGPoint(x: min(max(point.x, rect.minX), rect.maxX),
 				y: min(max(point.y, rect.minY), rect.maxY))
 	}
+	
+	// MARK: - Public alignment check
+	
+	/// 检查当前追踪点是否与屏幕中心对齐。
+	/// - Parameter tolerance: 对齐容差(points),默认为 25.0。
+	/// - Returns: 如果追踪点在容差范围内,返回 true。
+	func isAlignedWithCenter(tolerance: CGFloat = 25.0) -> Bool {
+		guard let current = currentCenterInView, compositionRect != .zero else {
+			return false
+		}
+		
+		let centerPoint = CGPoint(x: compositionRect.midX, y: compositionRect.midY)
+		let dx = current.x - centerPoint.x
+		let dy = current.y - centerPoint.y
+		let distance = sqrt(dx * dx + dy * dy)
+		
+		return distance <= tolerance
+	}
+	
+	/// 获取当前追踪点与中心的距离。
+	/// - Returns: 距离值(points),如果追踪点不存在则返回 nil。
+	func distanceToCenter() -> CGFloat? {
+		guard let current = currentCenterInView, compositionRect != .zero else {
+			return nil
+		}
+		
+		let centerPoint = CGPoint(x: compositionRect.midX, y: compositionRect.midY)
+		let dx = current.x - centerPoint.x
+		let dy = current.y - centerPoint.y
+		
+		return sqrt(dx * dx + dy * dy)
+	}
 }
 
 // MARK: - 扩展: CGFloat辅助方法
@@ -208,11 +281,11 @@ struct AdaptivePointSmoother {
 	private(set) var currentResponse: Double
 	private var previous: SIMD2<Double>?
 	
-	// 速度相关参数
-	private let lowSpeedThreshold: Double = 0.5      // 低速阈值(rad/s)
-	private let highSpeedThreshold: Double = 3.0     // 高速阈值(rad/s)
-	private let minResponse: Double = 0.15           // 最小响应(快速追踪)
-	private let maxResponse: Double = 0.35           // 最大响应(平滑追踪)
+	// 🔥 优化速度相关参数,提供更好的平滑度
+	private let lowSpeedThreshold: Double = 0.3      // 低速阈值(rad/s) - 降低以更快进入平滑模式
+	private let highSpeedThreshold: Double = 2.5     // 高速阈值(rad/s) - 降低以避免过度响应
+	private let minResponse: Double = 0.12           // 最小响应(快速追踪) - 降低提升平滑度
+	private let maxResponse: Double = 0.28           // 最大响应(平滑追踪) - 降低提升平滑度
 
 	/// 使用指定的基础响应系数初始化平滑器。
 	init(baseResponse: Double) {
