@@ -53,10 +53,6 @@ struct ContentView: View {
                 // 顶层 UI（所有控制项都叠加在预览之上）
                 VStack(spacing: 0) {
                     topSection
-
-                    // 用户引导文字
-                    userGuidanceView
-                        .padding(.top, 12)
                     
                     // 调试面板
                     debugPanel
@@ -99,53 +95,28 @@ struct ContentView: View {
     private var userGuidanceView: some View {
         let guidance = viewModel.userGuidanceText
         if !guidance.isEmpty {
-            HStack {
-                Spacer()
-                HStack(spacing: 10) {
-					// 状态图标
-					Image(systemName: statusIcon(for: guidance))
-						.font(.system(size: 16, weight: .semibold))
-						.foregroundColor(.white)
-						.frame(width: 24, height: 24)
-					
-					Text(guidance)
-						.font(.system(size: 15, weight: .semibold, design: .rounded))
-						.foregroundColor(.white)
-				}
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(
-					ZStack {
-						Capsule()
-							.fill(.ultraThinMaterial)
-							.overlay(
-								Capsule()
-									.fill(statusColor(for: guidance).opacity(0.3))
-							)
-						
-						Capsule()
-							.strokeBorder(
-								LinearGradient(
-									colors: [
-										Color.white.opacity(0.4),
-										Color.white.opacity(0.2)
-									],
-									startPoint: .topLeading,
-									endPoint: .bottomTrailing
-								),
-								lineWidth: 1.5
-							)
-					}
-                )
-                .shadow(color: statusColor(for: guidance).opacity(0.4), radius: 12, y: 4)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.8)),
-                    removal: .move(edge: .top).combined(with: .opacity)
-                ))
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .animation(DesignSystem.Animation.bouncy, value: guidance)
+			HStack(spacing: 8) {
+				// 状态图标
+				Image(systemName: statusIcon(for: guidance))
+					.font(.system(size: 16, weight: .semibold))
+					.foregroundColor(statusColor(for: guidance))
+				
+				Text(guidance)
+					.font(.system(size: 16, weight: .semibold, design: .rounded))
+					.foregroundColor(.white)
+					.lineLimit(1)
+			}
+			.padding(.horizontal, 16)
+			.padding(.vertical, 8)
+            .frame(height: 38)
+			.background(
+				Capsule()
+					.fill(Color.black.opacity(0.5))
+			)
+			.overlay(
+				Capsule()
+					.strokeBorder(statusColor(for: guidance).opacity(0.6), lineWidth: 1.5)
+			)
         }
     }
 	
@@ -264,17 +235,24 @@ struct ContentView: View {
 
     /// 顶部控制栏，包含返回、重置、调试显示和菜单操作。
     private var topControlBar: some View {
-        ZStack {
-			// 左右两端的按钮使用 HStack 布局，确保左侧按钮左对齐、右侧菜单右对齐
-			HStack {
-				topCircleButton(systemName: "arrow.clockwise") { 
-					HapticManager.shared.medium()
-					viewModel.resetDetectionState()
-				}
+        HStack {
+			// 左侧重置按钮
+			topCircleButton(systemName: "arrow.clockwise") { 
+				HapticManager.shared.medium()
+				viewModel.resetDetectionState()
+			}
 
-				Spacer()
-				
-				Menu {
+			Spacer()
+			
+			// 中间显示用户引导
+			if !viewModel.userGuidanceText.isEmpty {
+				userGuidanceView
+			}
+			
+			Spacer()
+			
+			// 右侧菜单按钮
+			Menu {
                     // 调试模式
 					Button {
 						HapticManager.shared.selection()
@@ -361,30 +339,8 @@ struct ContentView: View {
 					topCircleLabel(systemName: "ellipsis")
 				}
 			}
-            // 中心显示进度条，使用 ZStack 居中叠放，给进度条左右留出间距以避免与两侧按钮重叠
-            statusProgressView
-                .padding(.horizontal, 64)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-    }
-
-    /// 顶部居中的进度提示视图。
-    private var statusProgressView: some View {
-        VStack(spacing: 0) {
-            ProgressView(value: viewModel.pipelineProgress, total: 1.0)
-                .progressViewStyle(LinearProgressViewStyle(tint: DesignSystem.Colors.success))
-                .frame(height: 6)
-                .padding(.horizontal, 12)
-                .background(Color.white.opacity(0.15))
-                .cornerRadius(3)
-        }
-        .frame(maxWidth: 100, alignment: .center)
-        .frame(height: 44)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .glassmorphism(cornerRadius: 22)
-        .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
+			.frame(maxWidth: .infinity)
+			.padding(.vertical, 8)
     }
 
     /// 主拍照按钮样式。
@@ -439,24 +395,10 @@ struct ContentView: View {
 		}) {
             ZStack {
 				Circle()
-					.fill(.ultraThinMaterial)
-					.overlay(
+					.fill(Color.black.opacity(0.5))
+                    .overlay(
 						Circle()
-							.fill(Color.white.opacity(0.1))
-					)
-					.frame(width: 56, height: 56)
-				
-				Circle()
-					.strokeBorder(
-						LinearGradient(
-							colors: [
-								Color.white.opacity(0.3),
-								Color.white.opacity(0.1)
-							],
-							startPoint: .topLeading,
-							endPoint: .bottomTrailing
-						),
-						lineWidth: 1
+							.fill(Color.white.opacity(0.3))
 					)
 					.frame(width: 56, height: 56)
 				
@@ -464,7 +406,6 @@ struct ContentView: View {
                     .font(.system(size: 22, weight: .medium))
                     .foregroundStyle(.white)
             }
-			.shadow(color: .black.opacity(0.3), radius: 8, y: 3)
         }
     }
 
@@ -479,32 +420,17 @@ struct ContentView: View {
     private func topCircleLabel(systemName: String) -> some View {
         ZStack {
 			Circle()
-				.fill(.ultraThinMaterial)
-				.overlay(
-					Circle()
-						.fill(Color.white.opacity(0.1))
-				)
-				.frame(width: 44, height: 44)
-			
-			Circle()
-				.strokeBorder(
-					LinearGradient(
-						colors: [
-							Color.white.opacity(0.3),
-							Color.white.opacity(0.1)
-						],
-						startPoint: .topLeading,
-						endPoint: .bottomTrailing
-					),
-					lineWidth: 1
-				)
-				.frame(width: 44, height: 44)
+                .fill(Color.black.opacity(0.5))
+                .overlay(
+                        Circle()
+                            .fill(Color.white.opacity(0.3))
+                    )
+				.frame(width: 38, height: 38)
 			
             Image(systemName: systemName)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.white)
         }
-		.shadow(color: .black.opacity(0.3), radius: 8, y: 3)
     }
 
     @ViewBuilder

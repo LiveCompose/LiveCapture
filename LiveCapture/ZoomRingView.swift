@@ -45,28 +45,6 @@ struct ZoomRingView: View {
 		.frame(maxWidth: .infinity)
 		.padding(.horizontal, 24)
 		.padding(.vertical, 16)
-		.background(
-			Capsule()
-				.fill(.ultraThinMaterial)
-				.overlay(
-					Capsule()
-						.fill(Color.white.opacity(0.05))
-				)
-		)
-		.overlay(
-			Capsule()
-				.strokeBorder(
-					LinearGradient(
-						colors: [
-							Color.white.opacity(0.3),
-							Color.white.opacity(0.1)
-						],
-						startPoint: .topLeading,
-						endPoint: .bottomTrailing
-					),
-					lineWidth: 1
-				)
-		)
 		.shadow(color: .black.opacity(0.3), radius: 15, y: 5)
 	}
 
@@ -157,20 +135,6 @@ struct ZoomRingView: View {
 					radius: 12,
 					y: 4
 				)
-				
-				// 小标签（可选）
-				if isActive {
-					Text("已选择")
-						.font(.system(size: 10, weight: .semibold))
-						.foregroundColor(.white.opacity(0.8))
-						.padding(.horizontal, 8)
-						.padding(.vertical, 3)
-						.background(
-							Capsule()
-								.fill(Color.white.opacity(0.15))
-						)
-						.transition(.scale.combined(with: .opacity))
-				}
 			}
 			.scaleEffect(isActive ? 1.05 : (hoveredItem == item.id ? 1.02 : 1.0))
 			.animation(DesignSystem.Animation.quick, value: isActive)

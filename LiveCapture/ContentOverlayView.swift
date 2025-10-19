@@ -148,20 +148,20 @@ struct ContentOverlayView: View {
 				
 				ZStack {
 					// 外围光晕
-					Circle()
-						.fill(
-							RadialGradient(
-								colors: [
-									focusColor.opacity(0.6),
-									focusColor.opacity(0.2),
-									Color.clear
-								],
-								center: .center,
-								startRadius: 0,
-								endRadius: 20
-							)
-						)
-						.frame(width: 40, height: 40)
+					//Circle()
+					//	.fill(
+					//		RadialGradient(
+					///			colors: [
+					//				focusColor.opacity(0.6),
+					//				focusColor.opacity(0.2),
+					//				Color.clear
+					//			],
+					//			center: .center,
+					//			startRadius: 0,
+					//			endRadius: 20
+					//		)
+					//	)
+					//	.frame(width: 40, height: 40)
 					
 					// 主圆点
 					Circle()

@@ -12,7 +12,7 @@ enum AppMode: String, CaseIterable, Identifiable {
     case user
     var id: String { rawValue }
     var title: String { "智能拍摄" }
-    var description: String { "AI 辅助构图，捕捉完美瞬间" }
+    var description: String { "捕捉完美瞬间" }
     var icon: String { "camera.aperture" }
     var gradient: LinearGradient {
         LinearGradient(
@@ -94,7 +94,7 @@ struct MainView: View {
                             .opacity(isAnimating ? 1.0 : 0.0)
                             .offset(y: isAnimating ? 0 : 20)
                         
-                        Text("AI 智能构图助手")
+                        Text("智能构图助手")
                             .font(.system(size: 17, weight: .medium, design: .rounded))
                             .foregroundColor(.white.opacity(0.7))
                             .opacity(isAnimating ? 1.0 : 0.0)

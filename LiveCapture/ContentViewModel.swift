@@ -81,7 +81,6 @@ final class ContentViewModel: ObservableObject {
 		case waitingForStability
 		case detectingRegion
 		case templateReady
-		case aligning
 		case readyToCapture
 		case capturingPhoto
 		case savingPhoto
@@ -94,7 +93,6 @@ final class ContentViewModel: ObservableObject {
 			case .waitingForStability: return 0.3
 			case .detectingRegion: return 0.55
 			case .templateReady: return 0.7
-			case .aligning: return 0.85
 			case .readyToCapture: return 0.92
 			case .capturingPhoto: return 0.95
 			case .savingPhoto: return 1.0
@@ -107,17 +105,15 @@ final class ContentViewModel: ObservableObject {
 			case .idle:
 				return ""
 			case .startingCamera:
-				return "正在启动相机..."
+				return "正在启动相机"
 			case .waitingForStability:
-				return "请保持设备稳定"
+				return "请保持稳定"
 			case .detectingRegion:
-				return "正在识别目标区域..."
+				return "正在识别最佳构图..."
 			case .templateReady:
-				return "请将中心点移动到目标位置"
-			case .aligning:
-				return "继续对准中心..."
+				return "请将圆点移动到画面中心"
 			case .readyToCapture:
-				return "请保持稳定，即将拍照"
+				return "即将拍照，请保持稳定"
 			case .capturingPhoto:
 				return "正在拍照..."
 			case .savingPhoto:
@@ -481,13 +477,7 @@ final class ContentViewModel: ObservableObject {
 		if alignedNow && !isAligned {
 			// 刚刚对准 - 触发成功震动
 			HapticManager.shared.focusLock()
-			setStage(.aligning, message: "对准成功，保持稳定...")
 			scheduleAutoCapture()
-		} else if alignedNow {
-			// 继续保持对准
-			if pipelineStage != .readyToCapture && pipelineStage != .capturingPhoto {
-				setStage(.aligning, message: "保持对准...")
-			}
 		} else if !alignedNow && isAligned {
 			// 失去对准 - 触发警告震动
 			HapticManager.shared.warning()
