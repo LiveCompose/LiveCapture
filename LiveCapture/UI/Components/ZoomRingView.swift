@@ -93,24 +93,14 @@ struct ZoomRingView: View {
 					// 背景圆圈
 					Circle()
 						.fill(
-							isActive
-								? DesignSystem.Colors.primaryGradient
-								: LinearGradient(
-									colors: [Color.white.opacity(0.2)],
-									startPoint: .topLeading,
-									endPoint: .bottomTrailing
-								)
+							LinearGradient(
+								colors: [Color.white.opacity(isActive ? 0.7 : 0.2)],
+								startPoint: .topLeading,
+								endPoint: .bottomTrailing
+							)
 						)
-						.frame(width: 52, height: 52)
-					
-					// 发光效果（仅激活时）
-					if isActive {
-						Circle()
-							.stroke(Color.white.opacity(0.6), lineWidth: 2)
-							.frame(width: 52, height: 52)
-							.blur(radius: 4)
-					}
-					
+						.frame(width: 48, height: 48)
+	
 					// 边框
 					Circle()
 						.strokeBorder(
@@ -119,7 +109,7 @@ struct ZoomRingView: View {
 								: Color.white.opacity(0.3),
 							lineWidth: 1.5
 						)
-						.frame(width: 52, height: 52)
+						.frame(width: 48, height: 48)
 					
 					// 文字
 					Text(item.title)
@@ -130,11 +120,6 @@ struct ZoomRingView: View {
 								: Color.white.opacity(0.9)
 						)
 				}
-				.shadow(
-					color: isActive ? Color.blue.opacity(0.5) : Color.clear,
-					radius: 12,
-					y: 4
-				)
 			}
 			.scaleEffect(isActive ? 1.05 : (hoveredItem == item.id ? 1.02 : 1.0))
 			.animation(DesignSystem.Animation.quick, value: isActive)
