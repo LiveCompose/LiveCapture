@@ -21,6 +21,7 @@
 //  - boxCenterInView: CGPoint? - 追踪点位置
 //  - isAligned: Bool - 是否对齐
 //  - distanceToCenter: CGFloat? - 到中心距离
+//  - isFrontCamera: Bool - 是否为前置摄像头（用于镜像）
 //  - onCompositionRectUpdate: (CGRect) -> Void - 构图区域更新回调
 //
 //  ## 子组件
@@ -61,6 +62,7 @@ struct CameraPreviewSection: View {
 	let boxCenterInView: CGPoint?
 	let isAligned: Bool
 	let distanceToCenter: CGFloat?
+	let isFrontCamera: Bool
 	let onCompositionRectUpdate: (CGRect) -> Void
 	
 	var body: some View {
@@ -69,7 +71,7 @@ struct CameraPreviewSection: View {
 			let canvas = CGRect(origin: .zero, size: previewGeo.size)
 			
 			ZStack {
-				CameraPreviewView(session: session)
+				CameraPreviewView(session: session, isMirrored: isFrontCamera)
 					.frame(width: composition.width, height: composition.height)
 					.position(x: composition.midX, y: composition.midY)
 					.clipped()

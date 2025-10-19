@@ -100,15 +100,12 @@ struct ZoomRingView: View {
 
 	/// 构建线性排列的预设按钮。
 	var body: some View {
-		HStack(alignment: .center, spacing: 32) {
+		HStack(alignment: .center, spacing: 16) {
 			ForEach(lensButtonItems) { item in
 				presetButton(item)
 			}
 		}
 		.frame(maxWidth: .infinity)
-		.padding(.horizontal, 24)
-		.padding(.vertical, 16)
-		.shadow(color: .black.opacity(0.3), radius: 15, y: 5)
 	}
 
 	/// 生成用于展示的按钮模型集合。
@@ -147,44 +144,38 @@ struct ZoomRingView: View {
 		let isActive = abs(item.preset.zoomFactor - config.state.currentFactor) < 0.05
 		
 		return Button {
-			HapticManager.shared.zoomSnap()
+			//HapticManager.shared.zoomSnap()
 			config.onPresetTap(item.preset)
 		} label: {
-			VStack(spacing: 6) {
+			VStack(spacing: 2) {
 				// 主按钮
 				ZStack {
 					// 背景圆圈
 					Circle()
 						.fill(
-							LinearGradient(
-								colors: [Color.white.opacity(isActive ? 0.7 : 0.2)],
-								startPoint: .topLeading,
-								endPoint: .bottomTrailing
-							)
-						)
-						.frame(width: 48, height: 48)
-	
-					// 边框
-					Circle()
-						.strokeBorder(
 							isActive
-								? Color.white.opacity(0.5)
-								: Color.white.opacity(0.3),
-							lineWidth: 1.5
+								? Color.black.opacity(0.3)
+								: Color.white.opacity(0.15)
 						)
-						.frame(width: 48, height: 48)
+						.frame(width: 44, height: 44)
 					
 					// 文字
 					Text(item.title)
-						.font(.system(size: 16, weight: .bold, design: .rounded))
+						.font(.system(size: 14, weight: .bold, design: .rounded))
 						.foregroundStyle(
 							isActive
 								? Color.white
-								: Color.white.opacity(0.9)
+								: Color.black
+						)
+						.shadow(
+							color: isActive ? .clear : .white.opacity(0.8),
+							radius: isActive ? 0 : 2,
+							x: 0,
+							y: isActive ? 0 : 1
 						)
 				}
 			}
-			.scaleEffect(isActive ? 1.05 : (hoveredItem == item.id ? 1.02 : 1.0))
+			//.scaleEffect(isActive ? 1.05 : (hoveredItem == item.id ? 1.02 : 1.0))
 			.animation(DesignSystem.Animation.quick, value: isActive)
 			.animation(DesignSystem.Animation.quick, value: hoveredItem)
 		}

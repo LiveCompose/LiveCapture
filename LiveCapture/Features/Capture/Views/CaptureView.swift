@@ -136,6 +136,7 @@ struct CaptureView: View {
 					boxCenterInView: viewModel.boxCenterInView,
 					isAligned: viewModel.isAligned,
 					distanceToCenter: viewModel.distanceToCenter,
+					isFrontCamera: viewModel.isFrontCamera,
 					onCompositionRectUpdate: { rect in
 						viewModel.registerCompositionRect(rect)
 					}
@@ -245,8 +246,8 @@ struct CaptureView: View {
 	
 	private func bottomSection(bottomInset: CGFloat) -> some View {
 		VStack(spacing: 18) {
-			// 变焦环
-			zoomRing
+			// 变焦环和流水线开关
+			zoomRingWithPipelineToggle
 			
 			// 拍照按钮
 			HStack(spacing: 25) {
@@ -274,6 +275,54 @@ struct CaptureView: View {
 	}
 	
 	@ViewBuilder
+	private var zoomRingWithPipelineToggle: some View {
+		let span = viewModel.zoomRange.upperBound - viewModel.zoomRange.lowerBound
+		let showZoomRing = span > CGFloat(0.05) || viewModel.zoomPresets.count > 1
+		
+		if showZoomRing {
+			// 变焦环 + 流水线开关
+			HStack(alignment: .center, spacing: 0) {
+				// 左侧占位
+				Spacer()
+					.frame(width: 50)
+				
+				// 中间变焦环
+				Spacer()
+				ZoomRingView(
+					config: .init(
+						presets: viewModel.zoomPresets,
+						range: viewModel.zoomRange,
+						state: viewModel.zoomState,
+						onPresetTap: { preset in
+							viewModel.selectZoomPreset(preset)
+						},
+						onDragChanged: { factor in
+							viewModel.updateZoomInteractively(to: factor)
+						},
+						onDragEnded: { factor in
+							viewModel.finalizeZoomInteractively(at: factor, smooth: true)
+						}
+					)
+				)
+				Spacer()
+				
+				// 右侧流水线开关按钮
+				pipelineToggleButton
+					.frame(width: 50)
+			}
+			.frame(height: 120)
+			.transition(.opacity.combined(with: .move(edge: .bottom)))
+		} else {
+			// 只显示流水线开关按钮
+			HStack {
+				Spacer()
+				pipelineToggleButton
+			}
+			.frame(height: 50)
+		}
+	}
+	
+	@ViewBuilder
 	private var zoomRing: some View {
 		let span = viewModel.zoomRange.upperBound - viewModel.zoomRange.lowerBound
 		if span > CGFloat(0.05) || viewModel.zoomPresets.count > 1 {
@@ -293,8 +342,29 @@ struct CaptureView: View {
 					}
 				)
 			)
-			.frame(height: 120)
+			//.frame(height: 120)
 			.transition(.opacity.combined(with: .move(edge: .bottom)))
+		}
+	}
+	
+	private var pipelineToggleButton: some View {
+		Button {
+			HapticManager.shared.light()
+			viewModel.toggleCompositionPipeline()
+		} label: {
+			ZStack {
+				Circle()
+					.fill(viewModel.isCompositionPipelineEnabled ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
+					.frame(width: 44, height: 44)
+				
+				Image(systemName: viewModel.isCompositionPipelineEnabled 
+					? "wand.and.stars" 
+					: "wand.and.stars.inverse")
+					.font(.system(size: 20, weight: .medium))
+					.foregroundColor(viewModel.isCompositionPipelineEnabled 
+						? .green
+						: .white)
+			}
 		}
 	}
 	

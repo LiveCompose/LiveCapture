@@ -26,6 +26,7 @@
 //
 //  ### statusIcon(for:) 方法
 //  根据引导文字返回对应的 SF Symbol 图标
+//  - "魔术棒"/"构图流水线" → "wand.and.stars"
 //  - "启动" → "power"
 //  - "保持"/"稳定" → "hand.raised.fill"
 //  - "识别"/"检测" → "viewfinder"
@@ -38,6 +39,8 @@
 //  ### statusColor(for:) 方法
 //  根据引导文字返回对应的状态颜色
 //  - "错误" → DesignSystem.Colors.error（红色）
+//  - "构图流水线已开启" → DesignSystem.Colors.success（绿色）
+//  - "魔术棒" → Color.purple（紫色）
 //  - "保存"/"完成"/"即将" → DesignSystem.Colors.success（绿色）
 //  - "保持"/"稳定" → DesignSystem.Colors.warning（黄色）
 //  - "识别"/"检测" → DesignSystem.Colors.info（蓝色）
@@ -48,6 +51,7 @@
 //  - 单行文字，超出截断
 //  - 圆角设计，边框高亮
 //  - 与状态相关的视觉反馈
+//  - 渐变过渡动画：文字切换时缩放+淡入淡出效果
 //
 
 import SwiftUI
@@ -82,12 +86,19 @@ struct UserGuidanceView: View {
 				Capsule()
 					.strokeBorder(statusColor(for: guidanceText).opacity(0.6), lineWidth: 1.5)
 			)
+			.id(guidanceText) // 使用文字作为 ID，触发过渡动画
+			.transition(.asymmetric(
+				insertion: .scale.combined(with: .opacity),
+				removal: .scale.combined(with: .opacity)
+			))
 		}
 	}
 	
 	/// 根据引导文字返回对应的图标
 	private func statusIcon(for guidance: String) -> String {
-		if guidance.contains("启动") {
+		if guidance.contains("魔术棒") || guidance.contains("构图流水线") {
+			return "wand.and.stars"
+		} else if guidance.contains("启动") {
 			return "power"
 		} else if guidance.contains("保持") || guidance.contains("稳定") {
 			return "hand.raised.fill"
@@ -110,6 +121,10 @@ struct UserGuidanceView: View {
 	private func statusColor(for guidance: String) -> Color {
 		if guidance.contains("错误") {
 			return DesignSystem.Colors.error
+		} else if guidance.contains("构图流水线已开启") {
+			return DesignSystem.Colors.success
+		} else if guidance.contains("魔术棒") {
+			return Color.purple
 		} else if guidance.contains("保存") || guidance.contains("完成") || guidance.contains("即将") {
 			return DesignSystem.Colors.success
 		} else if guidance.contains("保持") || guidance.contains("稳定") {

@@ -17,6 +17,7 @@
 //
 //  ## 输入参数
 //  - session: AVCaptureSession - 相机会话对象
+//  - isMirrored: Bool - 是否镜像显示（前置摄像头）
 //
 //  ## UIViewRepresentable 方法
 //
@@ -85,6 +86,7 @@ import UIKit
 /// SwiftUI 封装的摄像头预览视图，使用 UIViewRepresentable
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession // 摄像头会话
+	let isMirrored: Bool // 是否镜像（前置摄像头）
 
     /// 创建并配置预览 UIView
     func makeUIView(context: Context) -> PreviewUIView {
@@ -92,6 +94,13 @@ struct CameraPreviewView: UIViewRepresentable {
         view.videoPreviewLayer.session = session // 绑定会话
         view.videoPreviewLayer.videoGravity = .resizeAspectFill // 填充模式
         applyStabilizationIfAvailable(on: view.videoPreviewLayer.connection) // 应用防抖
+		
+		// 🔥 前置摄像头镜像
+		if isMirrored, let connection = view.videoPreviewLayer.connection {
+			connection.automaticallyAdjustsVideoMirroring = false
+			connection.isVideoMirrored = true
+		}
+		
         return view
     }
 
@@ -99,6 +108,12 @@ struct CameraPreviewView: UIViewRepresentable {
     func updateUIView(_ uiView: PreviewUIView, context: Context) {
         uiView.videoPreviewLayer.session = session // 更新会话
         applyStabilizationIfAvailable(on: uiView.videoPreviewLayer.connection) // 重新应用防抖
+		
+		// 🔥 更新镜像状态
+		if let connection = uiView.videoPreviewLayer.connection {
+			connection.automaticallyAdjustsVideoMirroring = false
+			connection.isVideoMirrored = isMirrored
+		}
     }
 }
 

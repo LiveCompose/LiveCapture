@@ -34,10 +34,12 @@
 //  - isAutoCaptureEnabled: Bool - 是否启用自动拍照
 //  - captureDelay: Double - 拍照延迟（秒）
 //  - isSwitchingCamera: Bool - 是否正在切换摄像头
+//  - isCompositionPipelineEnabled: Bool - 是否启用构图自动化流水线
 //
 //  ## 计算属性
 //  - baseBoxCenterInView: CGPoint? - 基准中心点
 //  - boxCenterInView: CGPoint? - 当前中心点
+//  - isFrontCamera: Bool - 是否为前置摄像头
 //  - adjustedCropRectInView: CGRect? - 调整后的裁切框
 //  - zoomDisplayText: String - 变焦显示文本
 //  - focalLengthText: String - 焦距显示文本
@@ -65,6 +67,9 @@
 //  - resetDetectionState(): 重置所有检测状态
 //  - toggleAutoCapture(): 切换自动拍照开关
 //  - setCaptureDelay(_:): 设置拍照延迟
+//  - toggleCompositionPipeline(): 切换构图自动化流水线开关
+//    开启时显示"构图流水线已开启"提示
+//    关闭时显示"点击魔术棒开启智能构图"提示
 //
 //  ### 其他功能
 //  - openSystemPhotoLibrary(): 打开系统相册
@@ -111,8 +116,14 @@
 //  - setStage(_:message:): 设置流程阶段
 //    - 更新 pipelineStage
 //    - 更新 debugMessage
-//    - 更新 userGuidanceText
+//    - 调用统一刷新机制更新 userGuidanceText
 //    - 线程安全
+//
+//  - refreshUserGuidance(): 统一的用户引导文本刷新机制
+//    - 根据 isCompositionPipelineEnabled 状态决定显示内容
+//    - 流水线开启时：显示当前阶段引导或"构图流水线已开启"
+//    - 流水线关闭时：显示"点击魔术棒开启智能构图"
+//    - 被所有需要更新引导文本的方法调用
 //
 //  ### 几何转换
 //  - makeCompositionPixelBuffer(from:orientation:): 
@@ -188,6 +199,7 @@ final class CaptureViewModel: ObservableObject {
 	@Published var isAutoCaptureEnabled: Bool = true
 	@Published var captureDelay: Double = 1.0
 	@Published var isSwitchingCamera: Bool = false
+	@Published var isCompositionPipelineEnabled: Bool = false
 	
 	var onCaptureTriggered: (() -> Void)?
 	
@@ -195,6 +207,7 @@ final class CaptureViewModel: ObservableObject {
 	
 	var baseBoxCenterInView: CGPoint? { boxCenterManager.baseCenterInView }
 	var boxCenterInView: CGPoint? { boxCenterManager.currentCenterInView }
+	var isFrontCamera: Bool { camera.currentPosition == .front }
 	
 	var adjustedCropRectInView: CGRect? {
 		guard let initialRect = initialCropRectInView,
@@ -241,6 +254,9 @@ final class CaptureViewModel: ObservableObject {
 		
 		bindMotion()
 		bindCamera()
+		
+		// 🔥 初始化引导文字（使用统一机制）
+		refreshUserGuidance()
 	}
 	
 	deinit {
@@ -250,14 +266,14 @@ final class CaptureViewModel: ObservableObject {
 	// MARK: - Public API
 	
 	func onAppear() {
-		setStage(.startingCamera, message: "正在启动相机...")
 		camera.checkAndConfigure { [weak self] result in
 			guard let self else { return }
 			switch result {
 			case .success:
 				self.camera.startSession()
+				// 🔥 相机启动成功后，刷新引导文字
 				DispatchQueue.main.async {
-					self.setStage(.waitingForStability, message: "相机启动成功，等待稳定...")
+					self.refreshUserGuidance()
 				}
 			case .failure:
 				DispatchQueue.main.async {
@@ -306,7 +322,12 @@ final class CaptureViewModel: ObservableObject {
 		let isFront = camera.currentPosition == .front
 		boxCenterManager.setFrontCamera(isFront)
 		
-		setStage(.waitingForStability, message: "切换镜头，等待稳定")
+		// 🔥 如果流水线开启，显示等待稳定；否则使用统一刷新机制
+		if isCompositionPipelineEnabled {
+			setStage(.waitingForStability, message: "切换镜头，等待稳定")
+		} else {
+			refreshUserGuidance()
+		}
 		
 		// 切换动画完成后重置标志
 		DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -333,7 +354,8 @@ final class CaptureViewModel: ObservableObject {
 		autoCaptureWorkItem?.cancel()
 		motion.resetReferenceAttitude()
 		detectionInProgress = false
-		setStage(.waitingForStability, message: "已重置检测，等待稳定...")
+		// 🔥 统一刷新引导文本
+		refreshUserGuidance()
 	}
 	
 	func toggleAutoCapture() {
@@ -342,6 +364,39 @@ final class CaptureViewModel: ObservableObject {
 	
 	func setCaptureDelay(_ delay: Double) {
 		captureDelay = delay
+	}
+	
+	func toggleCompositionPipeline() {
+		isCompositionPipelineEnabled.toggle()
+		
+		if isCompositionPipelineEnabled {
+			// 开启时显示提示
+			HapticManager.shared.success()
+		} else {
+			// 关闭时刷新检测状态
+			HapticManager.shared.light()
+			resetDetectionState()
+		}
+		// 🔥 统一刷新引导文本
+		refreshUserGuidance()
+	}
+	
+	// MARK: - User Guidance
+	
+	/// 统一的用户引导文本刷新机制
+	/// 根据当前状态决定显示的引导文字
+	private func refreshUserGuidance() {
+		if isCompositionPipelineEnabled {
+			// 流水线开启时，根据当前阶段显示引导
+			if detectionReady {
+				userGuidanceText = pipelineStage.guidanceText
+			} else {
+				userGuidanceText = "构图流水线已开启"
+			}
+		} else {
+			// 流水线关闭时，显示开启提示
+			userGuidanceText = "点击魔术棒开启智能构图"
+		}
 	}
 	
 	// MARK: - Bindings
@@ -370,9 +425,6 @@ final class CaptureViewModel: ObservableObject {
 			.sink { [weak self] stable in
 				guard let self else { return }
 				self.motionIsStable = stable
-				if !stable && !self.detectionReady {
-					self.setStage(.waitingForStability, message: "等待设备稳定...")
-				}
 			}
 			.store(in: &cancellables)
 		
@@ -394,10 +446,13 @@ final class CaptureViewModel: ObservableObject {
 				guard let self, saved else { return }
 				HapticManager.shared.success()
 				self.setStage(.savingPhoto, message: "照片已保存到相册")
-				// 3秒后自动重置到等待稳定状态
-				DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+				// 1秒后自动关闭流水线并刷新状态
+				DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
 					if self.pipelineStage == .savingPhoto {
+						self.isCompositionPipelineEnabled = false
 						self.resetDetectionState()
+						// 🔥 使用统一刷新机制
+						self.refreshUserGuidance()
 					}
 				}
 			}
@@ -440,9 +495,14 @@ final class CaptureViewModel: ObservableObject {
 		guard let rawPixel = CMSampleBufferGetImageBuffer(sample) else { return }
 		let orientation = pixelOrientation(for: rawPixel)
 		
+		// 🔥 只有在流水线开启时才执行检测流程
+		guard isCompositionPipelineEnabled else { return }
+		
 		guard motion.isStable else {
-			DispatchQueue.main.async {
-				self.setStage(.waitingForStability, message: "等待设备稳定...")
+			if !detectionReady {
+				DispatchQueue.main.async {
+					self.setStage(.waitingForStability, message: "等待设备稳定...")
+				}
 			}
 			return
 		}
@@ -558,7 +618,8 @@ final class CaptureViewModel: ObservableObject {
 			if let message {
 				self.debugMessage = message
 			}
-			self.userGuidanceText = stage.guidanceText
+			// 🔥 使用统一的刷新机制
+			self.refreshUserGuidance()
 		}
 		if Thread.isMainThread {
 			applyChange()

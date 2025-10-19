@@ -7,7 +7,8 @@
 //  ## 文件作用
 //  管理智能构图的追踪点位置计算和更新
 //  使用设备陀螺仪数据实现物理正确的旋转追踪模型
-//  支持前后摄像头的镜像适配和磁性吸附效果
+//  支持磁性吸附效果
+//  支持前后摄像头（前置时追踪方向完全反转配合预览镜像）
 //
 //  ## 追踪模型原理
 //  基于物理的旋转模型，解决了传统"假设初始点在中心"的局限：
@@ -37,7 +38,9 @@
 //
 //  - setFrontCamera(_:): 设置是否为前置摄像头
 //    参数: isFront - Bool 前置摄像头标志
-//    功能: 前置时自动镜像水平方向
+//    功能: 
+//      - 控制追踪点方向（前置时水平和垂直都反转）
+//      - 配合预览层镜像确保追踪点跟随正确
 //
 //  ### 追踪控制
 //  - setBaseCenter(_:with:): 设置并锁定初始基准中心点
@@ -61,8 +64,9 @@
 //
 //  ### 对齐检测
 //  - isAlignedWithCenter(tolerance:): 检查是否对齐中心
-//    参数: tolerance - CGFloat 容差（points）
+//    参数: tolerance - CGFloat 对齐容差 (默认 5.0 points)
 //    返回: Bool 是否在容差范围内
+//    特性: 对齐持续超过 1s 后自动锁定到中心
 //    注意: 使用未吸附的原始位置检测
 //
 //  - distanceToCenter(): 获取到中心的距离
@@ -76,7 +80,6 @@
 //      3. 应用变焦补偿
 //      4. 速度预测减少延迟
 //      5. 磁性吸附平滑对齐
-//      6. 前置摄像头镜像处理
 //
 //  - applyMagneticSnap(to:): 应用磁性吸附效果
 //    参数: point - CGPoint 原始追踪点
@@ -174,6 +177,11 @@ final class BoxCenterManager: ObservableObject {
 	private let magneticThreshold: CGFloat = 25.0     // 吸附开始的距离阈值(points) - 25 开始吸附
 	private let magneticStrength: CGFloat = 0.90      // 吸附强度系数 [0,1] - 强力吸附
 	private let snapThreshold: CGFloat = 5.0          // 完全吸附的距离阈值(points) - 与拍照容差一致
+	
+	// 🔥 新增: 对齐持续时间追踪
+	private var alignedStartTime: Date?               // 对齐开始的时间
+	private let lockDuration: TimeInterval = 1.0      // 锁定前需要保持对齐的时长(秒)
+	private var isLockedToCenter: Bool = false        // 是否已锁定到中心
 
 	// MARK: - Public methods
 
@@ -219,6 +227,8 @@ final class BoxCenterManager: ObservableObject {
 		currentZoomFactor = 1.0
 		velocityHistory.removeAll()
 		lastAngularVelocity = .zero
+		alignedStartTime = nil
+		isLockedToCenter = false
 	}
 
 	/// 根据最新的设备姿态计算并更新中心点。
@@ -235,7 +245,10 @@ final class BoxCenterManager: ObservableObject {
 		let clampedPitch = max(-maxAngle, min(maxAngle, deltaPitch))
 		let clampedRoll = max(-maxAngle, min(maxAngle, deltaRoll))
 
-		let offset = CGPoint(x: clampedRoll / maxAngle, y: clampedPitch / maxAngle)
+		// 🔥 前置摄像头时水平和垂直方向都取反，因为预览已镜像
+		let rollForOffset = isFrontCamera ? -clampedRoll : clampedRoll
+		let pitchForOffset = isFrontCamera ? -clampedPitch : clampedPitch
+		let offset = CGPoint(x: rollForOffset / maxAngle, y: pitchForOffset / maxAngle)
 		
 		// 计算角速度用于动态平滑
 		let rotationRate = motion.rotationRate
@@ -257,11 +270,18 @@ final class BoxCenterManager: ObservableObject {
 	private func updateCenter(withNormalizedOffset offset: CGPoint) {
 		guard let base = baseCenterInView, compositionRect != .zero else { return }
 		
+		let screenCenter = CGPoint(x: compositionRect.midX, y: compositionRect.midY)
+		
+		// 🔥 如果已锁定到中心，直接设置为中心点
+		if isLockedToCenter {
+			rawTrackingPosition = screenCenter
+			currentCenterInView = screenCenter
+			return
+		}
+		
 		// 🔥 基于物理的旋转模型
 		// 相机旋转时，画面中的点会围绕画面中心旋转
 		// 离中心越远的点，相同角度产生的位移越大
-		
-		let screenCenter = CGPoint(x: compositionRect.midX, y: compositionRect.midY)
 		
 		// 1. 计算基准点相对于屏幕中心的向量
 		let baseVector = CGPoint(
@@ -296,18 +316,14 @@ final class BoxCenterManager: ObservableObject {
 			y: offset.y * adaptiveGainY
 		)
 		
-		// 🔥 前置摄像头镜像调整：水平方向取反
-		let mirroredDisplacement = isFrontCamera 
-			? CGPoint(x: -displacement.x, y: displacement.y)
-			: displacement
-		
 		// 5. 速度预测补偿（减少延迟）
 		let velocityCompensation = calculateVelocityCompensation()
 		
 		// 6. 应用偏移到基准点
+		// 注意：前置摄像头的镜像已在预览层处理，这里不需要再镜像
 		let rawTarget = CGPoint(
-			x: base.x + mirroredDisplacement.x + velocityCompensation.x,
-			y: base.y + mirroredDisplacement.y + velocityCompensation.y
+			x: base.x + displacement.x + velocityCompensation.x,
+			y: base.y + displacement.y + velocityCompensation.y
 		)
 		
 		// 7. 保存未吸附的原始位置（用于准确的对齐检测）
@@ -398,9 +414,11 @@ final class BoxCenterManager: ObservableObject {
 	/// - Parameter tolerance: 对齐容差(points),默认为 5.0。
 	/// - Returns: 如果追踪点在容差范围内,返回 true。
 	/// - Note: 使用未吸附的原始位置进行检测，避免磁性吸附导致的提前触发。
+	///        当对齐持续超过 1s 后，会自动锁定追踪点到中心。
 	func isAlignedWithCenter(tolerance: CGFloat = 5.0) -> Bool {
 		// 使用原始位置而不是吸附后的位置
 		guard let rawPosition = rawTrackingPosition, compositionRect != .zero else {
+			alignedStartTime = nil
 			return false
 		}
 		
@@ -409,7 +427,27 @@ final class BoxCenterManager: ObservableObject {
 		let dy = rawPosition.y - centerPoint.y
 		let distance = sqrt(dx * dx + dy * dy)
 		
-		return distance <= tolerance
+		let isAligned = distance <= tolerance
+		
+		// 🔥 追踪对齐持续时间
+		if isAligned {
+			if alignedStartTime == nil {
+				// 刚开始对齐
+				alignedStartTime = Date()
+			} else if let startTime = alignedStartTime {
+				// 检查是否持续对齐超过锁定时长
+				let duration = Date().timeIntervalSince(startTime)
+				if duration >= lockDuration && !isLockedToCenter {
+					isLockedToCenter = true
+				}
+			}
+		} else {
+			// 失去对齐，重置状态
+			alignedStartTime = nil
+			isLockedToCenter = false
+		}
+		
+		return isAligned
 	}
 	
 	/// 获取当前追踪点与中心的距离。
