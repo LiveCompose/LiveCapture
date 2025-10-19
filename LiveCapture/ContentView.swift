@@ -17,6 +17,9 @@ struct ContentView: View {
     @State private var pinchInitialFactor: CGFloat = 1.0
     /// 标记当前是否正在执行双指缩放，避免重复初始化起始倍率。
     @State private var pinchActive = false
+    /// 控制拍照动效的状态
+    @State private var captureAnimationScale: CGFloat = 1.0
+    @State private var captureFlashOpacity: Double = 0.0
     @Environment(\.dismiss) private var dismiss // 用于关闭当前视图
 
     /// 主视图内容，包含顶部控制区、取景区和底部控制栏。
@@ -33,12 +36,31 @@ struct ContentView: View {
                 // 底层为相机预览（固定在黑色底之上）
                 CameraPreviewSection()
                     .frame(width: geo.size.width, height: geo.size.height) // 适配全屏
+                    .scaleEffect(captureAnimationScale)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: captureAnimationScale)
                     .ignoresSafeArea() //
                     .zIndex(0)
+                
+                // 拍照闪光效果
+                if captureFlashOpacity > 0 {
+                    Color.white
+                        .opacity(captureFlashOpacity)
+                        .ignoresSafeArea()
+                        .zIndex(0.5)
+                        .allowsHitTesting(false)
+                }
 
                 // 顶层 UI（所有控制项都叠加在预览之上）
                 VStack(spacing: 0) {
                     topSection
+
+                    // 用户引导文字
+                    userGuidanceView
+                        .padding(.top, 12)
+                    
+                    // 调试面板
+                    debugPanel
+                        .zIndex(10)
 
                     Spacer()
 
@@ -49,19 +71,53 @@ struct ContentView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-        .onAppear { viewModel.onAppear() }
+        .onAppear { 
+            viewModel.onAppear()
+            viewModel.onCaptureTriggered = { [self] in
+                triggerCaptureAnimation()
+            }
+        }
         .onDisappear { viewModel.onDisappear() }
     }
 
     /// 顶部区域，包含控制栏与可选调试面板。
     private var topSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             topControlBar
-            if showDebugInfo {
-                debugPanel
-            }
         }
         .padding(.horizontal, 20)
+    }
+    
+    /// 用户引导文字视图
+    @ViewBuilder
+    private var userGuidanceView: some View {
+        let guidance = viewModel.userGuidanceText
+        if !guidance.isEmpty {
+            HStack {
+                Spacer()
+                Text(guidance)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule()
+                            .fill(Color.black.opacity(0.6))
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                            )
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: guidance)
+        }
     }
 
     /// 构建相机预览与覆盖层的组合视图。
@@ -153,11 +209,82 @@ struct ContentView: View {
 				Spacer()
 				
 				Menu {
+                    // 调试模式
 					Button {
 						showDebugInfo.toggle()
 					} label: {
-						Label(showDebugInfo ? "隐藏调试模式" : "打开调试模式", systemImage: showDebugInfo ? "eye.slash" : "eye")
+						Label(showDebugInfo ? "隐藏调试信息" : "显示调试信息", systemImage: showDebugInfo ? "eye.slash" : "eye")
 					}
+                    
+                    Divider()
+                    
+                    // 相机设置部分
+                    Menu {
+                        Button {
+                            viewModel.toggleCameraPosition()
+                        } label: {
+                            Label("切换镜头", systemImage: "arrow.triangle.2.circlepath.camera")
+                        }
+                        
+                        Button {
+                            // 预留：镜头锁定功能
+                        } label: {
+                            Label("锁定焦点（待实现）", systemImage: "lock.circle")
+                        }
+                        .disabled(true)
+                        
+                    } label: {
+                        Label("相机设置", systemImage: "camera")
+                    }
+                    
+                    // 拍摄设置
+                    Menu {
+                        Button {
+                            viewModel.toggleAutoCapture()
+                        } label: {
+                            Label(
+                                viewModel.isAutoCaptureEnabled ? "关闭自动拍照" : "开启自动拍照",
+                                systemImage: viewModel.isAutoCaptureEnabled ? "bolt.fill" : "bolt.slash"
+                            )
+                        }
+                        
+                        // 延迟设置
+                        Menu {
+                            ForEach([0.5, 1.0, 1.5, 2.0], id: \.self) { delay in
+                                Button {
+                                    viewModel.setCaptureDelay(delay)
+                                } label: {
+                                    HStack {
+                                        Text("\(String(format: "%.1f", delay))秒")
+                                        if abs(viewModel.captureDelay - delay) < 0.01 {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("拍照延迟: \(String(format: "%.1f", viewModel.captureDelay))秒", systemImage: "timer")
+                        }
+                        
+                    } label: {
+                        Label("拍摄设置", systemImage: "camera.aperture")
+                    }
+                    
+                    Divider()
+                    
+                    // 帮助和关于
+                    Button {
+                        // 预留：显示帮助
+                    } label: {
+                        Label("使用帮助", systemImage: "questionmark.circle")
+                    }
+                    
+                    Button {
+                        // 预留：关于页面
+                    } label: {
+                        Label("关于", systemImage: "info.circle")
+                    }
+                    
 				} label: {
 					topCircleLabel(systemName: "ellipsis")
 				}
@@ -231,52 +358,165 @@ struct ContentView: View {
     @ViewBuilder
     /// 展示调试信息与图像预览的面板。
     private var debugPanel: some View {
-        VStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("调试信息")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                    Spacer()
-                    Button("隐藏") { showDebugInfo = false }
-                        .font(.caption2)
-                }
-
-                Text("状: \(viewModel.debugMessage)")
-                    .font(.caption2)
-
-                VStack(alignment: .leading, spacing: 2) {
+        if showDebugInfo {
+            VStack(spacing: 0) {
+                // 调试信息卡片
+                VStack(alignment: .leading, spacing: 8) {
+                    // 标题栏
                     HStack {
-                        Text("稳定性: \(viewModel.motionIsStable ? "稳定" : "不稳定")")
+                        Image(systemName: "ant.circle.fill")
+                            .foregroundColor(.orange)
+                        Text("调试信息")
+                            .font(.system(size: 14, weight: .bold))
                         Spacer()
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                showDebugInfo = false
+                            }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.white.opacity(0.6))
+                                .font(.system(size: 18))
+                        }
+                    }
+                    
+                    Divider()
+                        .background(Color.white.opacity(0.2))
+                    
+                    // 主要状态信息
+                    Group {
+                        debugInfoRow(icon: "gearshape.2", title: "状态", value: viewModel.debugMessage)
+                        debugInfoRow(
+                            icon: viewModel.motionIsStable ? "gyroscope" : "exclamationmark.triangle",
+                            title: "稳定性",
+                            value: viewModel.motionIsStable ? "稳定" : "不稳定",
+                            valueColor: viewModel.motionIsStable ? .green : .orange
+                        )
+                    }
+                    
+                    Divider()
+                        .background(Color.white.opacity(0.2))
+                    
+                    // 跟踪和检测信息
+                    Group {
                         if let center = viewModel.boxCenterInView {
-                            Text("跟踪: (\(Int(center.x)), \(Int(center.y)))")
+                            debugInfoRow(
+                                icon: "scope",
+                                title: "跟踪位置",
+                                value: "(\(Int(center.x)), \(Int(center.y)))"
+                            )
                         } else {
-                            Text("跟踪: 无")
+                            debugInfoRow(icon: "scope", title: "跟踪位置", value: "无", valueColor: .gray)
                         }
-                    }
-                    HStack {
+                        
                         if let distance = viewModel.distanceToCenter {
-                            Text("距离中心: \(String(format: "%.1f", distance)) pts")
+                            debugInfoRow(
+                                icon: "arrow.left.and.right",
+                                title: "距离中心",
+                                value: "\(String(format: "%.1f", distance)) pts",
+                                valueColor: distance < 15 ? .green : .white
+                            )
                         } else {
-                            Text("距离中心: --")
+                            debugInfoRow(icon: "arrow.left.and.right", title: "距离中心", value: "--", valueColor: .gray)
                         }
-                        Spacer()
-                        Text(viewModel.detectionReady ? "检测: 已就绪" : "检测: 未就绪")
+                        
+                        debugInfoRow(
+                            icon: viewModel.detectionReady ? "checkmark.circle" : "circle.dotted",
+                            title: "检测状态",
+                            value: viewModel.detectionReady ? "已就绪" : "未就绪",
+                            valueColor: viewModel.detectionReady ? .green : .gray
+                        )
+                    }
+                    
+                    Divider()
+                        .background(Color.white.opacity(0.2))
+                    
+                    // 相机参数
+                    Group {
+                        debugInfoRow(
+                            icon: "camera.aperture",
+                            title: "变焦",
+                            value: "\(viewModel.zoomDisplayText) / \(viewModel.focalLengthText)"
+                        )
+                        
+                        debugInfoRow(
+                            icon: viewModel.isAligned ? "target" : "circle.dashed",
+                            title: "对准状态",
+                            value: viewModel.isAligned ? "已对准" : "未对准",
+                            valueColor: viewModel.isAligned ? .green : .white
+                        )
                     }
                 }
-                .font(.caption2)
-
-                Text("变焦: \(viewModel.zoomDisplayText) / \(viewModel.focalLengthText)")
-                    .font(.caption2)
-
-                Text("对准: \(viewModel.isAligned ? "已对准" : "未对准")")
-                    .font(.caption2)
-                    .foregroundColor(viewModel.isAligned ? .green : .primary)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.black.opacity(0.75))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [.orange.opacity(0.6), .orange.opacity(0.2)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 2
+                                )
+                        )
+                )
+                .shadow(color: .black.opacity(0.5), radius: 15, y: 5)
             }
-            .padding(12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .transition(.asymmetric(
+                insertion: .move(edge: .top).combined(with: .opacity),
+                removal: .move(edge: .top).combined(with: .opacity)
+            ))
+        }
+    }
+    
+    /// 调试信息行组件
+    private func debugInfoRow(icon: String, title: String, value: String, valueColor: Color = .white) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(.orange.opacity(0.8))
+                .frame(width: 20)
+            
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+                .frame(width: 80, alignment: .leading)
+            
+            Spacer()
+            
+            Text(value)
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .foregroundColor(valueColor)
+                .lineLimit(1)
+        }
+        .padding(.vertical, 4)
+    }
+    
+    /// 触发拍照动画
+    private func triggerCaptureAnimation() {
+        // 闪光效果
+        withAnimation(.easeOut(duration: 0.1)) {
+            captureFlashOpacity = 0.8
+        }
+        withAnimation(.easeIn(duration: 0.2).delay(0.1)) {
+            captureFlashOpacity = 0.0
+        }
+        
+        // 缩放效果 - 模拟2x变焦
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+            captureAnimationScale = 2.0
+        }
+        
+        // 恢复原始大小
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
+                captureAnimationScale = 1.0
+            }
         }
     }
 

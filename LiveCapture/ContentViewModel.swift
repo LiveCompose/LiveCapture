@@ -40,6 +40,12 @@ final class ContentViewModel: ObservableObject {
 	@Published private(set) var zoomState: CameraManager.ZoomState
 	@Published private(set) var zoomPresets: [CameraManager.ZoomPreset]
 	@Published private(set) var zoomRange: ClosedRange<CGFloat>
+	@Published private(set) var userGuidanceText: String = ""
+	@Published var isAutoCaptureEnabled: Bool = true
+	@Published var captureDelay: Double = 1.0
+	
+	// 拍照触发回调
+	var onCaptureTriggered: (() -> Void)?
 	
 	// MARK: - Computed Properties
 	
@@ -61,9 +67,11 @@ final class ContentViewModel: ObservableObject {
 
 	private static let ciContext = CIContext()
 	private let alignmentTolerance: CGFloat = 15.0 // 对齐容差 (points)
+	private let stableMovementThreshold: CGFloat = 30.0 // 大幅度移动阈值，超过此值立即刷新
 	private var detectionInProgress: Bool = false
 	private var cancellables: Set<AnyCancellable> = []
 	private var autoCaptureWorkItem: DispatchWorkItem?
+	private var lastBoxCenter: CGPoint? // 记录上一次的跟踪中心
 
 	// MARK: - Pipeline stage description
 
@@ -74,6 +82,7 @@ final class ContentViewModel: ObservableObject {
 		case detectingRegion
 		case templateReady
 		case aligning
+		case readyToCapture
 		case capturingPhoto
 		case savingPhoto
 		case error
@@ -86,9 +95,35 @@ final class ContentViewModel: ObservableObject {
 			case .detectingRegion: return 0.55
 			case .templateReady: return 0.7
 			case .aligning: return 0.85
+			case .readyToCapture: return 0.92
 			case .capturingPhoto: return 0.95
 			case .savingPhoto: return 1.0
 			case .error: return 0.2
+			}
+		}
+		
+		var guidanceText: String {
+			switch self {
+			case .idle:
+				return ""
+			case .startingCamera:
+				return "正在启动相机..."
+			case .waitingForStability:
+				return "请保持设备稳定"
+			case .detectingRegion:
+				return "正在识别目标区域..."
+			case .templateReady:
+				return "请将中心点移动到目标位置"
+			case .aligning:
+				return "继续对准中心..."
+			case .readyToCapture:
+				return "请保持稳定，即将拍照"
+			case .capturingPhoto:
+				return "正在拍照..."
+			case .savingPhoto:
+				return "照片已保存"
+			case .error:
+				return "发生错误，请重试"
 			}
 		}
 	}
@@ -203,10 +238,21 @@ final class ContentViewModel: ObservableObject {
 		cropRectInView = nil
 		initialCropRectInView = nil
 		boxCenterManager.reset()
+		lastBoxCenter = nil
 		autoCaptureWorkItem?.cancel()
 		motion.resetReferenceAttitude()
 		detectionInProgress = false
 		setStage(.waitingForStability, message: "已重置检测，等待稳定...")
+	}
+	
+	/// 切换自动拍照功能
+	func toggleAutoCapture() {
+		isAutoCaptureEnabled.toggle()
+	}
+	
+	/// 设置拍照延迟
+	func setCaptureDelay(_ delay: Double) {
+		captureDelay = delay
 	}
 
 	// MARK: - Bindings
@@ -218,6 +264,22 @@ final class ContentViewModel: ObservableObject {
 			.sink { [weak self] motion in
 				guard let self else { return }
 				self.boxCenterManager.updateCenter(with: motion)
+				
+				// 检测大幅度移动
+				if let currentCenter = self.boxCenterManager.currentCenterInView,
+				   let lastCenter = self.lastBoxCenter {
+					let dx = currentCenter.x - lastCenter.x
+					let dy = currentCenter.y - lastCenter.y
+					let movement = sqrt(dx * dx + dy * dy)
+					
+					// 如果移动超过阈值，立即刷新检测状态
+					if movement > self.stableMovementThreshold && self.detectionReady {
+						self.resetDetectionState()
+					}
+				}
+				
+				// 更新上次中心位置
+				self.lastBoxCenter = self.boxCenterManager.currentCenterInView
 				
 				// 更新距离信息
 				self.distanceToCenter = self.boxCenterManager.distanceToCenter()
@@ -239,7 +301,7 @@ final class ContentViewModel: ObservableObject {
 			.sink { [weak self] stable in
 				guard let self else { return }
 				self.motionIsStable = stable
-				if !stable {
+				if !stable && !self.detectionReady {
 					self.setStage(.waitingForStability, message: "等待设备稳定...")
 				}
 			}
@@ -372,16 +434,31 @@ final class ContentViewModel: ObservableObject {
 
 	/// 安排自动拍照任务,确保对准后短延迟触发。
 	private func scheduleAutoCapture() {
+		guard isAutoCaptureEnabled else { return }
+		
 		autoCaptureWorkItem?.cancel()
+		
+		// 进入"准备拍照"状态
+		setStage(.readyToCapture, message: "对准成功，准备拍照...")
+		
 		let work = DispatchWorkItem { [weak self] in
 			guard let self else { return }
 			if self.isAligned {
 				self.setStage(.capturingPhoto, message: "正在拍照")
-				self.capturePhoto()
+				
+				// 触发拍照动画
+				DispatchQueue.main.async {
+					self.onCaptureTriggered?()
+				}
+				
+				// 延迟实际拍照，配合动画
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+					self.capturePhoto()
+				}
 			}
 		}
 		autoCaptureWorkItem = work
-		DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
+		DispatchQueue.main.asyncAfter(deadline: .now() + captureDelay, execute: work)
 	}
 
 	/// 取消已排队的自动拍照任务。
@@ -397,12 +474,18 @@ final class ContentViewModel: ObservableObject {
 		let alignedNow = boxCenterManager.isAlignedWithCenter(tolerance: alignmentTolerance)
 		
 		if alignedNow && !isAligned {
-			setStage(.aligning, message: "对准成功")
+			// 刚刚对准
+			setStage(.aligning, message: "对准成功，保持稳定...")
 			scheduleAutoCapture()
 		} else if alignedNow {
-			setStage(.aligning, message: "保持对准")
+			// 继续保持对准
+			if pipelineStage != .readyToCapture && pipelineStage != .capturingPhoto {
+				setStage(.aligning, message: "保持对准...")
+			}
 		} else if !alignedNow && isAligned {
+			// 失去对准
 			cancelAutoCapture()
+			setStage(.templateReady, message: "请重新对准中心点")
 		}
 		
 		isAligned = alignedNow
@@ -415,6 +498,8 @@ final class ContentViewModel: ObservableObject {
 			if let message {
 				self.debugMessage = message
 			}
+			// 更新用户引导文字
+			self.userGuidanceText = stage.guidanceText
 		}
 		if Thread.isMainThread {
 			applyChange()
