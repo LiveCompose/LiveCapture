@@ -27,7 +27,7 @@
 //
 //  ### 摄像头切换
 //  - toggleCameraPosition(): 在前后摄像头之间切换
-//    自动更新输入、配置变焦、调整镜像和旋转
+//    自动更新输入、配置变焦和旋转
 //
 //  ### 设备选择
 //  - selectInitialDevice(for:): 根据位置选择初始摄像头设备
@@ -119,9 +119,6 @@ extension CameraManager {
                     connection.videoRotationAngle = 90
                 }
                 configureStabilization(for: connection)
-                if connection.isVideoMirroringSupported {
-                    connection.isVideoMirrored = currentPosition == .front
-                }
             }
         } else {
             throw CameraError.cannotAddOutput
@@ -183,9 +180,6 @@ extension CameraManager {
                         connection.videoRotationAngle = 90
                     }
                     self.configureStabilization(for: connection)
-                    if connection.isVideoMirroringSupported {
-                        connection.isVideoMirrored = nextPosition == .front
-                    }
                 }
             } catch {
                 return

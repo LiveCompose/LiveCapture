@@ -8,7 +8,7 @@
 //  管理智能构图的追踪点位置计算和更新
 //  使用设备陀螺仪数据实现物理正确的旋转追踪模型
 //  支持磁性吸附效果
-//  支持前后摄像头（前置时追踪方向完全反转配合预览镜像）
+//  支持前后摄像头
 //
 //  ## 追踪模型原理
 //  基于物理的旋转模型，解决了传统"假设初始点在中心"的局限：
@@ -38,9 +38,7 @@
 //
 //  - setFrontCamera(_:): 设置是否为前置摄像头
 //    参数: isFront - Bool 前置摄像头标志
-//    功能: 
-//      - 控制追踪点方向（前置时水平和垂直都反转）
-//      - 配合预览层镜像确保追踪点跟随正确
+//    功能: 保留用于未来可能的特殊处理
 //
 //  ### 追踪控制
 //  - setBaseCenter(_:with:): 设置并锁定初始基准中心点
@@ -165,7 +163,7 @@ final class BoxCenterManager: ObservableObject {
 	// 新增: 自适应增益控制
 	private var currentZoomFactor: CGFloat = 1.0
 	
-	// 🔥 新增: 前置摄像头支持
+	// 🔥 前置摄像头支持
 	private var isFrontCamera: Bool = false
 	
 	// 新增: 速度相关状态
@@ -197,7 +195,7 @@ final class BoxCenterManager: ObservableObject {
 		currentZoomFactor = max(0.5, factor)
 	}
 	
-	/// 设置当前是否为前置摄像头。
+	/// 设置当前是否为前置摄像头（用于陀螺仪读数翻转）。
 	/// - Parameter isFront: 是否为前置摄像头。
 	func setFrontCamera(_ isFront: Bool) {
 		isFrontCamera = isFront
@@ -245,8 +243,8 @@ final class BoxCenterManager: ObservableObject {
 		let clampedPitch = max(-maxAngle, min(maxAngle, deltaPitch))
 		let clampedRoll = max(-maxAngle, min(maxAngle, deltaRoll))
 
-		// 🔥 前置摄像头时水平和垂直方向都取反，因为预览已镜像
-		let rollForOffset = isFrontCamera ? -clampedRoll : clampedRoll
+		// 🔥 前置摄像头时不翻转读数（预览层翻转不影响追踪逻辑）
+		let rollForOffset = clampedRoll
 		let pitchForOffset = isFrontCamera ? -clampedPitch : clampedPitch
 		let offset = CGPoint(x: rollForOffset / maxAngle, y: pitchForOffset / maxAngle)
 		
@@ -320,7 +318,6 @@ final class BoxCenterManager: ObservableObject {
 		let velocityCompensation = calculateVelocityCompensation()
 		
 		// 6. 应用偏移到基准点
-		// 注意：前置摄像头的镜像已在预览层处理，这里不需要再镜像
 		let rawTarget = CGPoint(
 			x: base.x + displacement.x + velocityCompensation.x,
 			y: base.y + displacement.y + velocityCompensation.y

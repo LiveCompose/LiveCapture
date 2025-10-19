@@ -316,11 +316,14 @@ final class CaptureViewModel: ObservableObject {
 	func toggleCameraPosition() {
 		isSwitchingCamera = true
 		resetDetectionState()
+		
+		// 🔥 在切换前计算下一个位置（因为 toggleCameraPosition 是异步的）
+		let nextPosition: AVCaptureDevice.Position = camera.currentPosition == .back ? .front : .back
+		
 		camera.toggleCameraPosition()
 		
-		// 更新前置摄像头状态到 BoxCenterManager
-		let isFront = camera.currentPosition == .front
-		boxCenterManager.setFrontCamera(isFront)
+		// 更新前置摄像头状态到 BoxCenterManager（使用计算出的下一个位置）
+		boxCenterManager.setFrontCamera(nextPosition == .front)
 		
 		// 🔥 如果流水线开启，显示等待稳定；否则使用统一刷新机制
 		if isCompositionPipelineEnabled {
