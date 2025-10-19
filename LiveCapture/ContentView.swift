@@ -71,6 +71,12 @@ struct ContentView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .toast(
+            isShowing: $viewModel.showSaveToast,
+            message: "照片已保存到相册",
+            style: .success,
+            duration: 2.0
+        )
         .onAppear { 
             viewModel.onAppear()
             viewModel.onCaptureTriggered = { [self] in
@@ -95,30 +101,89 @@ struct ContentView: View {
         if !guidance.isEmpty {
             HStack {
                 Spacer()
-                Text(guidance)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule()
-                            .fill(Color.black.opacity(0.6))
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
-                            )
-                    )
-                    .shadow(color: .black.opacity(0.3), radius: 8, y: 2)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .opacity
-                    ))
+                HStack(spacing: 10) {
+					// 状态图标
+					Image(systemName: statusIcon(for: guidance))
+						.font(.system(size: 16, weight: .semibold))
+						.foregroundColor(.white)
+						.frame(width: 24, height: 24)
+					
+					Text(guidance)
+						.font(.system(size: 15, weight: .semibold, design: .rounded))
+						.foregroundColor(.white)
+				}
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(
+					ZStack {
+						Capsule()
+							.fill(.ultraThinMaterial)
+							.overlay(
+								Capsule()
+									.fill(statusColor(for: guidance).opacity(0.3))
+							)
+						
+						Capsule()
+							.strokeBorder(
+								LinearGradient(
+									colors: [
+										Color.white.opacity(0.4),
+										Color.white.opacity(0.2)
+									],
+									startPoint: .topLeading,
+									endPoint: .bottomTrailing
+								),
+								lineWidth: 1.5
+							)
+					}
+                )
+                .shadow(color: statusColor(for: guidance).opacity(0.4), radius: 12, y: 4)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.8)),
+                    removal: .move(edge: .top).combined(with: .opacity)
+                ))
                 Spacer()
             }
             .padding(.horizontal, 20)
-            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: guidance)
+            .animation(DesignSystem.Animation.bouncy, value: guidance)
         }
     }
+	
+	/// 根据引导文字返回对应的图标
+	private func statusIcon(for guidance: String) -> String {
+		if guidance.contains("启动") {
+			return "power"
+		} else if guidance.contains("保持") || guidance.contains("稳定") {
+			return "hand.raised.fill"
+		} else if guidance.contains("识别") || guidance.contains("检测") {
+			return "viewfinder"
+		} else if guidance.contains("移动") || guidance.contains("对准") {
+			return "arrow.up.and.down.and.arrow.left.and.right"
+		} else if guidance.contains("即将") || guidance.contains("拍照") {
+			return "camera.fill"
+		} else if guidance.contains("保存") || guidance.contains("完成") {
+			return "checkmark.circle.fill"
+		} else if guidance.contains("错误") {
+			return "exclamationmark.triangle.fill"
+		} else {
+			return "info.circle.fill"
+		}
+	}
+	
+	/// 根据引导文字返回对应的颜色
+	private func statusColor(for guidance: String) -> Color {
+		if guidance.contains("错误") {
+			return DesignSystem.Colors.error
+		} else if guidance.contains("保存") || guidance.contains("完成") || guidance.contains("即将") {
+			return DesignSystem.Colors.success
+		} else if guidance.contains("保持") || guidance.contains("稳定") {
+			return DesignSystem.Colors.warning
+		} else if guidance.contains("识别") || guidance.contains("检测") {
+			return DesignSystem.Colors.info
+		} else {
+			return DesignSystem.Colors.primary
+		}
+	}
 
     /// 构建相机预览与覆盖层的组合视图。
     private func CameraPreviewSection() -> some View {
@@ -203,6 +268,7 @@ struct ContentView: View {
 			// 左右两端的按钮使用 HStack 布局，确保左侧按钮左对齐、右侧菜单右对齐
 			HStack {
 				topCircleButton(systemName: "arrow.clockwise") { 
+					HapticManager.shared.medium()
 					viewModel.resetDetectionState()
 				}
 
@@ -211,6 +277,7 @@ struct ContentView: View {
 				Menu {
                     // 调试模式
 					Button {
+						HapticManager.shared.selection()
 						showDebugInfo.toggle()
 					} label: {
 						Label(showDebugInfo ? "隐藏调试信息" : "显示调试信息", systemImage: showDebugInfo ? "eye.slash" : "eye")
@@ -221,6 +288,7 @@ struct ContentView: View {
                     // 相机设置部分
                     Menu {
                         Button {
+							HapticManager.shared.selection()
                             viewModel.toggleCameraPosition()
                         } label: {
                             Label("切换镜头", systemImage: "arrow.triangle.2.circlepath.camera")
@@ -240,6 +308,7 @@ struct ContentView: View {
                     // 拍摄设置
                     Menu {
                         Button {
+							HapticManager.shared.selection()
                             viewModel.toggleAutoCapture()
                         } label: {
                             Label(
@@ -252,6 +321,7 @@ struct ContentView: View {
                         Menu {
                             ForEach([0.5, 1.0, 1.5, 2.0], id: \.self) { delay in
                                 Button {
+									HapticManager.shared.soft()
                                     viewModel.setCaptureDelay(delay)
                                 } label: {
                                     HStack {
@@ -274,12 +344,14 @@ struct ContentView: View {
                     
                     // 帮助和关于
                     Button {
+						HapticManager.shared.light()
                         // 预留：显示帮助
                     } label: {
                         Label("使用帮助", systemImage: "questionmark.circle")
                     }
                     
                     Button {
+						HapticManager.shared.light()
                         // 预留：关于页面
                     } label: {
                         Label("关于", systemImage: "info.circle")
@@ -301,38 +373,98 @@ struct ContentView: View {
     private var statusProgressView: some View {
         VStack(spacing: 0) {
             ProgressView(value: viewModel.pipelineProgress, total: 1.0)
-                .progressViewStyle(LinearProgressViewStyle())
-                .tint(.green)
-                .frame(height: 4)
-                .padding(.horizontal, 8)
+                .progressViewStyle(LinearProgressViewStyle(tint: DesignSystem.Colors.success))
+                .frame(height: 6)
+                .padding(.horizontal, 12)
+                .background(Color.white.opacity(0.15))
+                .cornerRadius(3)
         }
-        .frame(maxWidth: 80, alignment: .center) // 水平居中
-        .frame(height: 40) // 与旁边圆形按钮高度一致（topCircleLabel 为 40x40）
+        .frame(maxWidth: 100, alignment: .center)
+        .frame(height: 44)
         .padding(.horizontal, 16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(.vertical, 8)
+        .glassmorphism(cornerRadius: 22)
+        .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
     }
 
     /// 主拍照按钮样式。
     private var captureButton: some View {
-        Button(action: { viewModel.capturePhoto() }) {
-            Circle()
-                .strokeBorder(Color.white, lineWidth: 10)
-                .frame(width: 78, height: 78)
-                .overlay(Circle().fill(Color.white.opacity(0.15)))
+        Button(action: { 
+			HapticManager.shared.capture()
+			viewModel.capturePhoto() 
+		}) {
+            ZStack {
+				// 外层大圆
+                Circle()
+                    .strokeBorder(
+						LinearGradient(
+							colors: [
+								Color.white,
+								Color.white.opacity(0.8)
+							],
+							startPoint: .top,
+							endPoint: .bottom
+						),
+						lineWidth: 6
+					)
+                    .frame(width: 84, height: 84)
+					.shadow(color: .white.opacity(0.4), radius: 10, y: 0)
+				
+				// 内层圆
+                Circle()
+					.fill(
+						RadialGradient(
+							colors: [
+								Color.white.opacity(0.9),
+								Color.white.opacity(0.3)
+							],
+							center: .center,
+							startRadius: 10,
+							endRadius: 35
+						)
+					)
+					.frame(width: 70, height: 70)
+					.shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+            }
         }
+		.scaleEffect(captureAnimationScale > 1.5 ? 0.95 : 1.0)
+		.animation(DesignSystem.Animation.quick, value: captureAnimationScale)
     }
 
     /// 构建次要圆形按钮，适用于辅助操作。
     private func secondaryCircleButton(systemName: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Circle()
-                .fill(Color.white.opacity(0.18))
-                .frame(width: 50, height: 50)
-                .overlay(
-                    Image(systemName: systemName)
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(.white)
-                )
+        Button(action: {
+			HapticManager.shared.light()
+			action()
+		}) {
+            ZStack {
+				Circle()
+					.fill(.ultraThinMaterial)
+					.overlay(
+						Circle()
+							.fill(Color.white.opacity(0.1))
+					)
+					.frame(width: 56, height: 56)
+				
+				Circle()
+					.strokeBorder(
+						LinearGradient(
+							colors: [
+								Color.white.opacity(0.3),
+								Color.white.opacity(0.1)
+							],
+							startPoint: .topLeading,
+							endPoint: .bottomTrailing
+						),
+						lineWidth: 1
+					)
+					.frame(width: 56, height: 56)
+				
+                Image(systemName: systemName)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.white)
+            }
+			.shadow(color: .black.opacity(0.3), radius: 8, y: 3)
         }
     }
 
@@ -345,14 +477,34 @@ struct ContentView: View {
 
     /// 顶部圆形按钮的内部标签样式。
     private func topCircleLabel(systemName: String) -> some View {
-        Circle()
-            .fill(Color.white.opacity(0.18))
-            .frame(width: 40, height: 40)
-            .overlay(
-                Image(systemName: systemName)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-            )
+        ZStack {
+			Circle()
+				.fill(.ultraThinMaterial)
+				.overlay(
+					Circle()
+						.fill(Color.white.opacity(0.1))
+				)
+				.frame(width: 44, height: 44)
+			
+			Circle()
+				.strokeBorder(
+					LinearGradient(
+						colors: [
+							Color.white.opacity(0.3),
+							Color.white.opacity(0.1)
+						],
+						startPoint: .topLeading,
+						endPoint: .bottomTrailing
+					),
+					lineWidth: 1
+				)
+				.frame(width: 44, height: 44)
+			
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+		.shadow(color: .black.opacity(0.3), radius: 8, y: 3)
     }
 
     @ViewBuilder
@@ -361,41 +513,84 @@ struct ContentView: View {
         if showDebugInfo {
             VStack(spacing: 0) {
                 // 调试信息卡片
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
                     // 标题栏
                     HStack {
-                        Image(systemName: "ant.circle.fill")
-                            .foregroundColor(.orange)
-                        Text("调试信息")
-                            .font(.system(size: 14, weight: .bold))
-                        Spacer()
-                        Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        ZStack {
+							Circle()
+								.fill(
+									LinearGradient(
+										colors: [
+											DesignSystem.Colors.accent,
+											DesignSystem.Colors.accent.opacity(0.7)
+										],
+										startPoint: .topLeading,
+										endPoint: .bottomTrailing
+									)
+								)
+								.frame(width: 32, height: 32)
+							
+							Image(systemName: "chart.bar.fill")
+								.foregroundColor(.white)
+								.font(.system(size: 14, weight: .bold))
+						}
+                        
+						Text("调试信息")
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+							.foregroundColor(.white)
+                        
+						Spacer()
+                        
+						Button {
+							HapticManager.shared.light()
+                            withAnimation(DesignSystem.Animation.smooth) {
                                 showDebugInfo = false
                             }
                         } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.white.opacity(0.6))
-                                .font(.system(size: 18))
+							ZStack {
+								Circle()
+									.fill(Color.white.opacity(0.15))
+									.frame(width: 32, height: 32)
+								
+								Image(systemName: "xmark")
+									.foregroundColor(.white.opacity(0.8))
+									.font(.system(size: 14, weight: .bold))
+							}
                         }
                     }
+                    .padding(.bottom, 4)
                     
                     Divider()
-                        .background(Color.white.opacity(0.2))
+                        .background(
+							LinearGradient(
+								colors: [
+									Color.white.opacity(0.3),
+									Color.white.opacity(0.1)
+								],
+								startPoint: .leading,
+								endPoint: .trailing
+							)
+						)
                     
                     // 主要状态信息
                     Group {
-                        debugInfoRow(icon: "gearshape.2", title: "状态", value: viewModel.debugMessage)
                         debugInfoRow(
-                            icon: viewModel.motionIsStable ? "gyroscope" : "exclamationmark.triangle",
+							icon: "gearshape.2.fill",
+							title: "状态",
+							value: viewModel.debugMessage,
+							iconColor: DesignSystem.Colors.info
+						)
+                        debugInfoRow(
+                            icon: viewModel.motionIsStable ? "gyroscope" : "exclamationmark.triangle.fill",
                             title: "稳定性",
                             value: viewModel.motionIsStable ? "稳定" : "不稳定",
-                            valueColor: viewModel.motionIsStable ? .green : .orange
+                            valueColor: viewModel.motionIsStable ? DesignSystem.Colors.success : DesignSystem.Colors.warning,
+							iconColor: viewModel.motionIsStable ? DesignSystem.Colors.success : DesignSystem.Colors.warning
                         )
                     }
                     
                     Divider()
-                        .background(Color.white.opacity(0.2))
+                        .background(Color.white.opacity(0.1))
                     
                     // 跟踪和检测信息
                     Group {
@@ -403,10 +598,17 @@ struct ContentView: View {
                             debugInfoRow(
                                 icon: "scope",
                                 title: "跟踪位置",
-                                value: "(\(Int(center.x)), \(Int(center.y)))"
+                                value: "(\(Int(center.x)), \(Int(center.y)))",
+								iconColor: DesignSystem.Colors.primary
                             )
                         } else {
-                            debugInfoRow(icon: "scope", title: "跟踪位置", value: "无", valueColor: .gray)
+                            debugInfoRow(
+								icon: "scope",
+								title: "跟踪位置",
+								value: "无",
+								valueColor: .gray,
+								iconColor: .gray
+							)
                         }
                         
                         if let distance = viewModel.distanceToCenter {
@@ -414,87 +616,123 @@ struct ContentView: View {
                                 icon: "arrow.left.and.right",
                                 title: "距离中心",
                                 value: "\(String(format: "%.1f", distance)) pts",
-                                valueColor: distance < 15 ? .green : .white
+                                valueColor: distance < 15 ? DesignSystem.Colors.success : .white,
+								iconColor: distance < 15 ? DesignSystem.Colors.success : DesignSystem.Colors.primary
                             )
                         } else {
-                            debugInfoRow(icon: "arrow.left.and.right", title: "距离中心", value: "--", valueColor: .gray)
+                            debugInfoRow(
+								icon: "arrow.left.and.right",
+								title: "距离中心",
+								value: "--",
+								valueColor: .gray,
+								iconColor: .gray
+							)
                         }
                         
                         debugInfoRow(
-                            icon: viewModel.detectionReady ? "checkmark.circle" : "circle.dotted",
+                            icon: viewModel.detectionReady ? "checkmark.circle.fill" : "circle.dotted",
                             title: "检测状态",
                             value: viewModel.detectionReady ? "已就绪" : "未就绪",
-                            valueColor: viewModel.detectionReady ? .green : .gray
+                            valueColor: viewModel.detectionReady ? DesignSystem.Colors.success : .gray,
+							iconColor: viewModel.detectionReady ? DesignSystem.Colors.success : .gray
                         )
                     }
                     
                     Divider()
-                        .background(Color.white.opacity(0.2))
+                        .background(Color.white.opacity(0.1))
                     
                     // 相机参数
                     Group {
                         debugInfoRow(
                             icon: "camera.aperture",
                             title: "变焦",
-                            value: "\(viewModel.zoomDisplayText) / \(viewModel.focalLengthText)"
+                            value: "\(viewModel.zoomDisplayText) / \(viewModel.focalLengthText)",
+							iconColor: DesignSystem.Colors.secondary
                         )
                         
                         debugInfoRow(
                             icon: viewModel.isAligned ? "target" : "circle.dashed",
                             title: "对准状态",
                             value: viewModel.isAligned ? "已对准" : "未对准",
-                            valueColor: viewModel.isAligned ? .green : .white
+                            valueColor: viewModel.isAligned ? DesignSystem.Colors.success : .white,
+							iconColor: viewModel.isAligned ? DesignSystem.Colors.success : .gray
                         )
                     }
                 }
-                .padding(16)
+                .padding(20)
                 .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.black.opacity(0.75))
+                    RoundedRectangle(cornerRadius: 24)
+						.fill(.ultraThinMaterial)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .strokeBorder(
-                                    LinearGradient(
-                                        colors: [.orange.opacity(0.6), .orange.opacity(0.2)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 2
-                                )
+                            RoundedRectangle(cornerRadius: 24)
+								.fill(Color.black.opacity(0.3))
                         )
                 )
-                .shadow(color: .black.opacity(0.5), radius: 15, y: 5)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+									DesignSystem.Colors.accent.opacity(0.5),
+									DesignSystem.Colors.accent.opacity(0.2),
+									Color.white.opacity(0.1)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 2
+                        )
+                )
+                .shadow(color: DesignSystem.Colors.accent.opacity(0.3), radius: 20, y: 8)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 20)
             .padding(.top, 12)
             .transition(.asymmetric(
-                insertion: .move(edge: .top).combined(with: .opacity),
+                insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.95)),
                 removal: .move(edge: .top).combined(with: .opacity)
             ))
         }
     }
     
     /// 调试信息行组件
-    private func debugInfoRow(icon: String, title: String, value: String, valueColor: Color = .white) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundColor(.orange.opacity(0.8))
-                .frame(width: 20)
+    private func debugInfoRow(
+		icon: String,
+		title: String,
+		value: String,
+		valueColor: Color = .white,
+		iconColor: Color = DesignSystem.Colors.accent
+	) -> some View {
+        HStack(spacing: 14) {
+			// 图标容器
+			ZStack {
+				Circle()
+					.fill(iconColor.opacity(0.2))
+					.frame(width: 32, height: 32)
+				
+				Image(systemName: icon)
+					.font(.system(size: 14, weight: .semibold))
+					.foregroundColor(iconColor)
+			}
             
             Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.8))
-                .frame(width: 80, alignment: .leading)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white.opacity(0.85))
+                .frame(width: 85, alignment: .leading)
             
             Spacer()
             
             Text(value)
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundColor(valueColor)
                 .lineLimit(1)
+				.padding(.horizontal, 12)
+				.padding(.vertical, 6)
+				.background(
+					Capsule()
+						.fill(valueColor.opacity(0.15))
+				)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
     
     /// 触发拍照动画

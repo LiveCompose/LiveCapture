@@ -31,7 +31,7 @@ final class ContentViewModel: ObservableObject {
 	@Published private(set) var initialCropRectInView: CGRect?
 	@Published private(set) var compositionRectInView: CGRect = .zero
 	@Published private(set) var isAligned: Bool = false
-	@Published private(set) var showSaveToast: Bool = false
+	@Published var showSaveToast: Bool = false
 	@Published private(set) var debugMessage: String = "等待相机启动..."
 	@Published private(set) var pipelineStage: PipelineStage = .idle
 	@Published private(set) var distanceToCenter: CGFloat?
@@ -315,6 +315,8 @@ final class ContentViewModel: ObservableObject {
 			.sink { [weak self] saved in
 				guard let self else { return }
 				guard saved else { return }
+				// 照片保存成功 - 触发成功震动
+				HapticManager.shared.success()
 				self.showSaveToast = true
 				self.setStage(.savingPhoto, message: "照片已保存到相册")
 				DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -419,6 +421,8 @@ final class ContentViewModel: ObservableObject {
 					self.motion.lockReferenceAttitude()
 					
 					self.detectionReady = true
+					// 目标检测成功 - 触发成功震动
+					HapticManager.shared.success()
 					self.setStage(.templateReady, message: "目标已锁定: \(crop.detectionType)，移动设备对齐中心圆")
 					self.isAligned = false
 				} else {
@@ -446,7 +450,8 @@ final class ContentViewModel: ObservableObject {
 			if self.isAligned {
 				self.setStage(.capturingPhoto, message: "正在拍照")
 				
-				// 触发拍照动画
+				// 触发拍照震动和动画
+				HapticManager.shared.capture()
 				DispatchQueue.main.async {
 					self.onCaptureTriggered?()
 				}
@@ -474,7 +479,8 @@ final class ContentViewModel: ObservableObject {
 		let alignedNow = boxCenterManager.isAlignedWithCenter(tolerance: alignmentTolerance)
 		
 		if alignedNow && !isAligned {
-			// 刚刚对准
+			// 刚刚对准 - 触发成功震动
+			HapticManager.shared.focusLock()
 			setStage(.aligning, message: "对准成功，保持稳定...")
 			scheduleAutoCapture()
 		} else if alignedNow {
@@ -483,7 +489,8 @@ final class ContentViewModel: ObservableObject {
 				setStage(.aligning, message: "保持对准...")
 			}
 		} else if !alignedNow && isAligned {
-			// 失去对准
+			// 失去对准 - 触发警告震动
+			HapticManager.shared.warning()
 			cancelAutoCapture()
 			setStage(.templateReady, message: "请重新对准中心点")
 		}

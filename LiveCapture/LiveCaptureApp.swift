@@ -14,7 +14,7 @@ struct LiveCaptureApp: App {
     /// 定义应用主窗口与默认根视图。
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainView()
         }
     }
 }

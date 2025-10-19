@@ -28,6 +28,7 @@ struct ZoomRingView: View {
 	}
 
 	private let config: Configuration
+	@State private var hoveredItem: CameraManager.ZoomPreset.ID?
 
 	/// 使用给定配置初始化控件。
 	init(config: Configuration) {
@@ -36,14 +37,37 @@ struct ZoomRingView: View {
 
 	/// 构建线性排列的预设按钮。
 	var body: some View {
-		HStack(alignment: .center, spacing: 28) {
+		HStack(alignment: .center, spacing: 32) {
 			ForEach(lensButtonItems) { item in
 				presetButton(item)
 			}
 		}
 		.frame(maxWidth: .infinity)
 		.padding(.horizontal, 24)
-		.padding(.vertical, 12)
+		.padding(.vertical, 16)
+		.background(
+			Capsule()
+				.fill(.ultraThinMaterial)
+				.overlay(
+					Capsule()
+						.fill(Color.white.opacity(0.05))
+				)
+		)
+		.overlay(
+			Capsule()
+				.strokeBorder(
+					LinearGradient(
+						colors: [
+							Color.white.opacity(0.3),
+							Color.white.opacity(0.1)
+						],
+						startPoint: .topLeading,
+						endPoint: .bottomTrailing
+					),
+					lineWidth: 1
+				)
+		)
+		.shadow(color: .black.opacity(0.3), radius: 15, y: 5)
 	}
 
 	/// 生成用于展示的按钮模型集合。
@@ -80,29 +104,91 @@ struct ZoomRingView: View {
 
 	private func presetButton(_ item: LensButtonItem) -> some View {
 		let isActive = abs(item.preset.zoomFactor - config.state.currentFactor) < 0.05
-		let activeFill = Color.white
-		let inactiveFill = Color.white.opacity(0.18)
-		let activeTextColor = Color.black
-		let inactiveTextColor = Color.white
-
+		
 		return Button {
+			HapticManager.shared.zoomSnap()
 			config.onPresetTap(item.preset)
 		} label: {
-			Circle()
-				.fill(isActive ? activeFill : inactiveFill)
-				.frame(width: 40, height: 40)
-				.overlay(
+			VStack(spacing: 6) {
+				// 主按钮
+				ZStack {
+					// 背景圆圈
 					Circle()
-						.stroke(Color.white.opacity(isActive ? 0.0 : 0.4), lineWidth: 1)
-					)
-				.overlay(
+						.fill(
+							isActive
+								? DesignSystem.Colors.primaryGradient
+								: LinearGradient(
+									colors: [Color.white.opacity(0.2)],
+									startPoint: .topLeading,
+									endPoint: .bottomTrailing
+								)
+						)
+						.frame(width: 52, height: 52)
+					
+					// 发光效果（仅激活时）
+					if isActive {
+						Circle()
+							.stroke(Color.white.opacity(0.6), lineWidth: 2)
+							.frame(width: 52, height: 52)
+							.blur(radius: 4)
+					}
+					
+					// 边框
+					Circle()
+						.strokeBorder(
+							isActive
+								? Color.white.opacity(0.5)
+								: Color.white.opacity(0.3),
+							lineWidth: 1.5
+						)
+						.frame(width: 52, height: 52)
+					
+					// 文字
 					Text(item.title)
-						.font(.system(size: 14, weight: .semibold))
-						.foregroundStyle(isActive ? activeTextColor : inactiveTextColor)
+						.font(.system(size: 16, weight: .bold, design: .rounded))
+						.foregroundStyle(
+							isActive
+								? Color.white
+								: Color.white.opacity(0.9)
+						)
+				}
+				.shadow(
+					color: isActive ? Color.blue.opacity(0.5) : Color.clear,
+					radius: 12,
+					y: 4
 				)
+				
+				// 小标签（可选）
+				if isActive {
+					Text("已选择")
+						.font(.system(size: 10, weight: .semibold))
+						.foregroundColor(.white.opacity(0.8))
+						.padding(.horizontal, 8)
+						.padding(.vertical, 3)
+						.background(
+							Capsule()
+								.fill(Color.white.opacity(0.15))
+						)
+						.transition(.scale.combined(with: .opacity))
+				}
+			}
+			.scaleEffect(isActive ? 1.05 : (hoveredItem == item.id ? 1.02 : 1.0))
+			.animation(DesignSystem.Animation.quick, value: isActive)
+			.animation(DesignSystem.Animation.quick, value: hoveredItem)
 		}
 		.buttonStyle(.plain)
-		.animation(.easeInOut(duration: 0.12), value: isActive)
+		.simultaneousGesture(
+			DragGesture(minimumDistance: 0)
+				.onChanged { _ in
+					if hoveredItem != item.id {
+						hoveredItem = item.id
+						HapticManager.shared.soft()
+					}
+				}
+				.onEnded { _ in
+					hoveredItem = nil
+				}
+		)
 	}
 }
 

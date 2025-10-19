@@ -299,8 +299,8 @@ final class AestheticCropDetector {
 		}
 		
 		let rect = CGRect(
-			x: 0.3 - width / 2,
-			y: 0.3 - height / 2,
+			x: 0.1 - width / 2,
+			y: 0.1 - height / 2,
 			width: width,
 			height: height
 		)
