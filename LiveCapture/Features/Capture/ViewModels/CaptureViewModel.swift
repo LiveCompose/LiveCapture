@@ -3,6 +3,154 @@
 //  LiveCapture
 //
 //  拍摄功能的视图模型
+//
+//  ## 文件作用
+//  协调相机、运动传感器和 AI 检测模块
+//  管理整个智能拍摄流程的状态机
+//  为 CaptureView 提供所有业务逻辑和状态
+//
+//  ## 主要类
+//  ### CaptureViewModel
+//  拍摄功能视图模型（ObservableObject）
+//
+//  ## Dependencies（依赖项）
+//  - camera: CameraManager - 相机管理器
+//  - motion: MotionStabilityMonitor - 运动监控器
+//  - aestheticDetector: AestheticCropDetector - 美学检测器
+//  - boxCenterManager: BoxCenterManager - 追踪点管理器
+//
+//  ## Published 状态
+//  - cropRectInView: CGRect? - 当前裁切框位置
+//  - initialCropRectInView: CGRect? - 初始检测的裁切框
+//  - compositionRectInView: CGRect - 构图区域
+//  - isAligned: Bool - 是否对齐中心
+//  - debugMessage: String - 调试信息
+//  - pipelineStage: PipelineStage - 当前流程阶段
+//  - distanceToCenter: CGFloat? - 到中心的距离
+//  - detectionReady: Bool - 检测是否就绪
+//  - motionIsStable: Bool - 设备是否稳定
+//  - zoomState/zoomPresets/zoomRange - 变焦相关状态
+//  - userGuidanceText: String - 用户引导文字
+//  - isAutoCaptureEnabled: Bool - 是否启用自动拍照
+//  - captureDelay: Double - 拍照延迟（秒）
+//  - isSwitchingCamera: Bool - 是否正在切换摄像头
+//
+//  ## 计算属性
+//  - baseBoxCenterInView: CGPoint? - 基准中心点
+//  - boxCenterInView: CGPoint? - 当前中心点
+//  - adjustedCropRectInView: CGRect? - 调整后的裁切框
+//  - zoomDisplayText: String - 变焦显示文本
+//  - focalLengthText: String - 焦距显示文本
+//  - session: AVCaptureSession - 相机会话
+//
+//  ## 主要方法
+//
+//  ### 生命周期
+//  - init(): 初始化依赖和绑定
+//  - onAppear(): 视图出现时启动相机和传感器
+//  - onDisappear(): 视图消失时停止所有服务
+//
+//  ### 相机控制
+//  - capturePhoto(): 触发拍照
+//  - toggleCameraPosition(): 切换前后摄像头
+//    包含翻转动画和状态重置
+//
+//  ### 变焦控制
+//  - selectZoomPreset(_:): 选择变焦预设
+//  - updateZoomInteractively(to:): 交互式变焦
+//  - finalizeZoomInteractively(at:smooth:): 完成交互式变焦
+//
+//  ### 状态管理
+//  - registerCompositionRect(_:): 注册构图区域尺寸
+//  - resetDetectionState(): 重置所有检测状态
+//  - toggleAutoCapture(): 切换自动拍照开关
+//  - setCaptureDelay(_:): 设置拍照延迟
+//
+//  ### 其他功能
+//  - openSystemPhotoLibrary(): 打开系统相册
+//
+//  ## 私有方法
+//
+//  ### 绑定
+//  - bindMotion(): 绑定运动传感器事件
+//    - 订阅 deviceMotion 更新追踪点
+//    - 订阅 isStable 控制检测流程
+//    - 订阅 largeMotionDetected 自动重置
+//
+//  - bindCamera(): 绑定相机事件
+//    - 订阅 lastPhotoSaved 显示保存结果
+//    - 订阅 zoomState 更新变焦显示
+//    - 订阅 zoomPresets/zoomRange
+//
+//  ### 处理流程
+//  - setupCallbacks(): 设置相机帧回调
+//  - handleSampleBuffer(_:): 处理视频帧
+//    - 等待稳定
+//    - 触发 AI 检测
+//    - 传递给检测管线
+//
+//  - detectCropRegion(using:orientation:): 执行裁切区域检测
+//    - 调用 AestheticCropDetector
+//    - 转换坐标到视图空间
+//    - 设置基准中心点
+//    - 锁定参考姿态
+//
+//  ### 自动拍照
+//  - scheduleAutoCapture(): 调度自动拍照任务
+//    在对齐后延迟执行
+//
+//  - cancelAutoCapture(): 取消自动拍照任务
+//
+//  ### 对齐检测
+//  - checkAlignmentByDistance(): 检查距离对齐
+//    - 调用 BoxCenterManager 检测
+//    - 对齐时触发自动拍照
+//    - 失去对齐时取消拍照
+//
+//  ### 状态控制
+//  - setStage(_:message:): 设置流程阶段
+//    - 更新 pipelineStage
+//    - 更新 debugMessage
+//    - 更新 userGuidanceText
+//    - 线程安全
+//
+//  ### 几何转换
+//  - makeCompositionPixelBuffer(from:orientation:): 
+//    创建 3:4 构图像素缓冲
+//
+//  - pixelOrientation(for:): 判断像素缓冲方向
+//
+//  - rotateNormalizedRect(_:for:): 旋转归一化矩形
+//
+//  - rectInCompositionSpace(from:orientation:): 
+//    转换检测框到视图坐标系
+//
+//  ## 流程状态机（PipelineStage）
+//  - idle: 空闲
+//  - startingCamera: 启动相机
+//  - waitingForStability: 等待稳定
+//  - detectingRegion: 检测区域
+//  - templateReady: 模板就绪（追踪中）
+//  - readyToCapture: 准备拍照
+//  - capturingPhoto: 正在拍照
+//  - savingPhoto: 保存照片
+//  - error: 错误
+//
+//  每个阶段有对应的：
+//  - progress: Double - 进度值
+//  - guidanceText: String - 引导文字
+//
+//  ## 线程处理
+//  - 视频帧在 videoOutputQueue 处理
+//  - AI 检测在专用队列异步执行
+//  - UI 状态更新确保在主线程
+//  - 使用 Combine 管理异步事件流
+//
+//  ## 性能优化
+//  - detectionInProgress 标志避免重复检测
+//  - 使用 static ciContext 共享 Core Image 上下文
+//  - 帧处理前检查稳定性减少无效计算
+//
 
 import Foundation
 import Combine
@@ -28,7 +176,6 @@ final class CaptureViewModel: ObservableObject {
 	@Published private(set) var initialCropRectInView: CGRect?
 	@Published private(set) var compositionRectInView: CGRect = .zero
 	@Published private(set) var isAligned: Bool = false
-	@Published var showSaveToast: Bool = false
 	@Published private(set) var debugMessage: String = "等待相机启动..."
 	@Published private(set) var pipelineStage: PipelineStage = .idle
 	@Published private(set) var distanceToCenter: CGFloat?
@@ -40,6 +187,7 @@ final class CaptureViewModel: ObservableObject {
 	@Published private(set) var userGuidanceText: String = ""
 	@Published var isAutoCaptureEnabled: Bool = true
 	@Published var captureDelay: Double = 1.0
+	@Published var isSwitchingCamera: Bool = false
 	
 	var onCaptureTriggered: (() -> Void)?
 	
@@ -77,11 +225,9 @@ final class CaptureViewModel: ObservableObject {
 	
 	private static let ciContext = CIContext()
 	private let alignmentTolerance: CGFloat = 15.0
-	private let stableMovementThreshold: CGFloat = 30.0
 	private var detectionInProgress: Bool = false
 	private var cancellables: Set<AnyCancellable> = []
 	private var autoCaptureWorkItem: DispatchWorkItem?
-	private var lastBoxCenter: CGPoint?
 	
 	// MARK: - Lifecycle
 	
@@ -89,6 +235,10 @@ final class CaptureViewModel: ObservableObject {
 		zoomState = camera.zoomState
 		zoomPresets = camera.zoomPresets
 		zoomRange = camera.zoomRange
+		
+		// 初始化前置摄像头状态
+		boxCenterManager.setFrontCamera(camera.currentPosition == .front)
+		
 		bindMotion()
 		bindCamera()
 	}
@@ -148,8 +298,20 @@ final class CaptureViewModel: ObservableObject {
 	}
 	
 	func toggleCameraPosition() {
+		isSwitchingCamera = true
+		resetDetectionState()
 		camera.toggleCameraPosition()
+		
+		// 更新前置摄像头状态到 BoxCenterManager
+		let isFront = camera.currentPosition == .front
+		boxCenterManager.setFrontCamera(isFront)
+		
 		setStage(.waitingForStability, message: "切换镜头，等待稳定")
+		
+		// 切换动画完成后重置标志
+		DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+			self.isSwitchingCamera = false
+		}
 	}
 	
 	func openSystemPhotoLibrary() {
@@ -168,7 +330,6 @@ final class CaptureViewModel: ObservableObject {
 		cropRectInView = nil
 		initialCropRectInView = nil
 		boxCenterManager.reset()
-		lastBoxCenter = nil
 		autoCaptureWorkItem?.cancel()
 		motion.resetReferenceAttitude()
 		detectionInProgress = false
@@ -192,19 +353,6 @@ final class CaptureViewModel: ObservableObject {
 				guard let self else { return }
 				self.boxCenterManager.updateCenter(with: motion)
 				
-				// 检测大幅度移动
-				if let currentCenter = self.boxCenterManager.currentCenterInView,
-				   let lastCenter = self.lastBoxCenter {
-					let dx = currentCenter.x - lastCenter.x
-					let dy = currentCenter.y - lastCenter.y
-					let movement = sqrt(dx * dx + dy * dy)
-					
-					if movement > self.stableMovementThreshold && self.detectionReady {
-						self.resetDetectionState()
-					}
-				}
-				
-				self.lastBoxCenter = self.boxCenterManager.currentCenterInView
 				self.distanceToCenter = self.boxCenterManager.distanceToCenter()
 				
 				if let adjusted = self.adjustedCropRectInView {
@@ -227,6 +375,16 @@ final class CaptureViewModel: ObservableObject {
 				}
 			}
 			.store(in: &cancellables)
+		
+		motion.$largeMotionDetected
+			.receive(on: DispatchQueue.main)
+			.sink { [weak self] detected in
+				guard let self, detected, self.detectionReady else { return }
+				// 检测到大幅度运动时自动重置状态
+				HapticManager.shared.warning()
+				self.resetDetectionState()
+			}
+			.store(in: &cancellables)
 	}
 	
 	private func bindCamera() {
@@ -235,10 +393,12 @@ final class CaptureViewModel: ObservableObject {
 			.sink { [weak self] saved in
 				guard let self, saved else { return }
 				HapticManager.shared.success()
-				self.showSaveToast = true
 				self.setStage(.savingPhoto, message: "照片已保存到相册")
-				DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-					self.showSaveToast = false
+				// 3秒后自动重置到等待稳定状态
+				DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+					if self.pipelineStage == .savingPhoto {
+						self.resetDetectionState()
+					}
 				}
 			}
 			.store(in: &cancellables)
@@ -358,7 +518,6 @@ final class CaptureViewModel: ObservableObject {
 			guard let self, self.isAligned else { return }
 			self.setStage(.capturingPhoto, message: "正在拍照")
 			
-			HapticManager.shared.capture()
 			DispatchQueue.main.async {
 				self.onCaptureTriggered?()
 			}

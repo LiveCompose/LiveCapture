@@ -2,7 +2,70 @@
 //  ZoomRingView.swift
 //  LiveCapture
 //
-//  Created by Codex on 2025/03/17.
+//  变焦环视图组件
+//
+//  ## 文件作用
+//  提供线性排列的变焦预设按钮
+//  支持快捷切换不同焦距镜头
+//  提供直观的变焦倍率选择界面
+//
+//  ## 主要组件
+//  ### ZoomRingView
+//  变焦环视图
+//
+//  ### Configuration 结构体
+//  变焦环配置
+//  
+//  属性:
+//  - presets: [CameraManager.ZoomPreset] - 预设列表
+//  - range: ClosedRange<CGFloat> - 变焦范围
+//  - state: CameraManager.ZoomState - 当前变焦状态
+//  - onPresetTap: (ZoomPreset) -> Void - 预设点击回调
+//  - onDragChanged: (CGFloat) -> Void - 拖动变化回调
+//  - onDragEnded: (CGFloat) -> Void - 拖动结束回调
+//
+//  ### LensButtonItem 结构体
+//  镜头按钮项（私有）
+//  
+//  属性:
+//  - preset: ZoomPreset - 关联的预设
+//  - title: String - 显示标题
+//  - id: UUID - 唯一标识符
+//
+//  ## 状态
+//  - hoveredItem: UUID? - 当前悬停的按钮 ID
+//
+//  ## UI 布局
+//  - 水平排列的预设按钮
+//  - 间距 32pt
+//  - 水平内边距 24pt
+//  - 垂直内边距 16pt
+//  - 底部阴影效果
+//
+//  ## 按钮样式
+//  - 圆角矩形背景
+//  - 半透明毛玻璃材质
+//  - 当前激活预设高亮显示
+//  - 悬停效果
+//  - 倍率文字 + 焦距标注
+//
+//  ## 交互
+//  - 点击预设按钮切换焦距
+//  - 长按拖动实现连续变焦
+//  - 悬停高亮反馈
+//
+//  ## 辅助属性
+//  - lensButtonItems: [LensButtonItem]
+//    从配置生成按钮项列表
+//
+//  ## 子视图
+//  - presetButton(_:): 单个预设按钮
+//    参数: item - LensButtonItem
+//    返回: some View
+//    样式:
+//      - 激活状态：白色背景，蓝色文字
+//      - 未激活：半透明背景，白色文字
+//      - 显示倍率和焦距
 //
 
 import SwiftUI

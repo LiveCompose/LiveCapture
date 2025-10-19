@@ -2,7 +2,41 @@
 //  CameraManager.swift
 //  LiveCapture
 //
-//  Manages AVCaptureSession, video frames, and still photo capture.
+//  相机管理核心模块
+//
+//  ## 文件作用
+//  管理 AVCaptureSession 的完整生命周期，包括相机配置、视频帧捕获、照片拍摄
+//  提供变焦控制、镜头切换等核心功能
+//
+//  ## 主要类
+//  - CameraManager: 相机管理器主类，继承自 NSObject 和 ObservableObject
+//
+//  ## 核心属性
+//  - session: AVCaptureSession 实例，管理音视频捕获
+//  - isSessionRunning: 会话运行状态
+//  - lastPhotoSaved: 照片保存结果标志
+//  - zoomState: 当前变焦状态
+//  - zoomPresets: 可用的变焦预设列表
+//  - zoomRange: 连续变焦范围
+//  - currentPosition: 当前摄像头位置（前置/后置）
+//
+//  ## 重要方法
+//  - init(): 初始化相机会话和输出配置
+//  - applyZoomConfiguration(range:lenses:presets:targetFactor:isContinuous:): 
+//    更新变焦配置到主线程
+//  - updateZoomState(_:): 线程安全地更新变焦状态
+//
+//  ## 扩展文件
+//  - CameraManager+Session.swift: 会话管理和摄像头切换
+//  - CameraManager+Zoom.swift: 变焦控制逻辑
+//  - CameraManager+Photo.swift: 照片捕获和保存
+//  - CameraManager+VideoOutput.swift: 视频帧处理
+//  - CameraManager+Models.swift: 数据模型定义
+//
+//  ## 线程安全
+//  - sessionQueue: 串行队列处理会话配置
+//  - videoOutputQueue: 串行队列处理视频帧
+//  - 所有 @Published 属性更新都确保在主线程
 //
 
 import Foundation

@@ -3,6 +3,79 @@
 //  LiveCapture
 //
 //  基于 Vision 框架的美学裁切检测器
+//
+//  ## 文件作用
+//  使用 Apple Vision 框架进行智能图像分析
+//  检测人脸、人体和显著性区域，计算最佳构图裁切框
+//
+//  ## 主要类型
+//
+//  ### AestheticCrop 结构体
+//  美学裁切检测结果
+//  - rect: CGRect - 归一化坐标系的裁切框 [0,1]
+//  - confidence: Float - 检测置信度 (0-1)
+//  - detectionType: String - 检测类型描述（如"人脸"、"人体"、"显著性"）
+//
+//  ### AestheticCropDetector 类
+//  美学裁切检测器主类
+//
+//  ## 主要方法
+//
+//  ### 公共接口
+//  - detectBestCrop(in:orientation:targetAspectRatio:completion:): 
+//    检测最佳裁切区域（异步）
+//    参数:
+//      - pixelBuffer: CVPixelBuffer 输入图像
+//      - orientation: CGImagePropertyOrientation 图像方向
+//      - targetAspectRatio: CGFloat 目标宽高比（如 3.0/4.0）
+//      - completion: (AestheticCrop?) -> Void 结果回调
+//    功能:
+//      - 在后台队列执行 Vision 检测
+//      - 生成多个候选裁切框
+//      - 评分并选择最佳构图
+//      - 失败时返回默认中心裁切
+//
+//  ### Vision 检测
+//  - performVisionDetection(pixelBuffer:orientation:): 执行多种 Vision 检测
+//    返回: VisionDetections 包含人脸、人体和显著性结果
+//    使用的 Vision 请求:
+//      - VNDetectFaceRectanglesRequest: 人脸检测
+//      - VNDetectHumanRectanglesRequest: 人体检测
+//      - VNGenerateAttentionBasedSaliencyImageRequest: 注意力显著性
+//
+//  ### 候选生成
+//  - generateCandidates(from:targetAspectRatio:): 生成候选裁切框列表
+//    策略:
+//      - 基于人脸创建候选（主要）
+//      - 基于人体创建候选
+//      - 基于显著性热图创建候选
+//      - 默认中心候选作为兜底
+//
+//  ### 评分选择
+//  - selectBestCandidate(_:detections:): 评分并选择最佳候选
+//    评分因素:
+//      - 人脸覆盖度和位置
+//      - 人体覆盖度
+//      - 显著性区域对齐
+//      - 构图平衡性
+//    返回: 得分最高的 AestheticCrop
+//
+//  ### 辅助方法
+//  - createCenterCrop(aspectRatio:): 创建默认中心裁切框
+//  - calculateCandidateScore(_:detections:): 计算单个候选的综合得分
+//  - alignToFace/Body/Saliency: 基于不同检测结果对齐裁切框
+//
+//  ## 检测策略
+//  1. 优先使用人脸检测结果（最高优先级）
+//  2. 人脸缺失时使用人体检测
+//  3. 使用显著性图辅助构图优化
+//  4. 所有检测失败时返回中心裁切
+//
+//  ## 线程安全
+//  - 使用专用的 queue 执行所有检测操作
+//  - 通过 completion 异步返回结果
+//  - 不阻塞主线程
+//
 
 import Foundation
 import Vision

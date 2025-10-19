@@ -2,7 +2,68 @@
 //  CameraManager+Zoom.swift
 //  LiveCapture
 //
-//  Created by GitHub Copilot on 2025/10/13.
+//  相机变焦控制扩展
+//
+//  ## 文件作用
+//  实现相机的变焦功能，包括离散预设变焦和连续交互式变焦
+//  管理虚拟设备的镜头切换点和变焦能力配置
+//
+//  ## 主要方法
+//
+//  ### 变焦控制
+//  - selectZoomPreset(_:): 选择预设变焦倍率（如 0.5x, 1x, 2x）
+//    参数: preset - ZoomPreset 预设变焦配置
+//    特点: 带平滑动画过渡
+//
+//  - updateInteractiveZoom(to:): 交互式变焦时实时更新倍率
+//    参数: factor - CGFloat 目标变焦倍率
+//    特点: 无动画，立即响应用户拖动
+//
+//  - finalizeInteractiveZoom(at:smooth:): 交互式变焦结束时锁定倍率
+//    参数: 
+//      - factor: CGFloat 最终变焦倍率
+//      - smooth: Bool 是否使用平滑过渡
+//
+//  ### 变焦能力配置
+//  - configureZoomCapabilities(for:position:): 配置设备的变焦能力
+//    参数:
+//      - device: AVCaptureDevice 当前相机设备
+//      - position: AVCaptureDevice.Position 摄像头位置
+//    功能:
+//      - 读取硬件支持的变焦范围
+//      - 识别虚拟设备的镜头切换点
+//      - 生成可用镜头列表和预设
+//      - 更新 UI 显示的变焦选项
+//
+//  ### 内部实现
+//  - applyZoomFactor(_:animated:isContinuous:): 实际执行变焦操作
+//    参数:
+//      - factor: CGFloat 目标倍率
+//      - animated: Bool 是否使用动画
+//      - isContinuous: Bool 是否为连续变焦模式
+//    功能:
+//      - 在 sessionQueue 上执行
+//      - 锁定设备配置
+//      - 设置 videoZoomFactor
+//      - 更新变焦状态到主线程
+//
+//  - refreshZoomState(with:isContinuous:): 刷新变焦状态模型
+//    参数:
+//      - factor: CGFloat 当前倍率
+//      - isContinuous: Bool 是否为连续模式
+//    功能:
+//      - 计算显示倍率和焦距
+//      - 确定当前使用的镜头类型
+//      - 更新 @Published zoomState
+//
+//  ## 变焦策略
+//  - 后置摄像头：支持超广角(0.5x)、广角(1x)、长焦(2x+)
+//  - 前置摄像头：通常固定 1x
+//  - 使用虚拟设备切换点优化多镜头切换体验
+//
+//  ## 线程安全
+//  - 所有变焦操作在 sessionQueue 上执行
+//  - 状态更新通过 DispatchQueue.main 回到主线程
 //
 
 import Foundation

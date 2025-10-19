@@ -2,7 +2,87 @@
 //  ToastView.swift
 //  LiveCapture
 //
-//  优雅的 Toast 提示组件
+//  Toast 提示组件（已弃用）
+//
+//  ## 文件作用
+//  提供轻量级的浮动提示消息
+//  用于显示操作结果反馈
+//  
+//  注意: 此组件已不再使用，保留用于参考
+//  当前版本使用 UserGuidanceView 替代 Toast 功能
+//
+//  ## 主要类型
+//
+//  ### ToastStyle 枚举
+//  Toast 提示样式
+//  
+//  case:
+//  - success: 成功提示（绿色，对勾图标）
+//  - error: 错误提示（红色，叉号图标）
+//  - warning: 警告提示（黄色，感叹号图标）
+//  - info: 信息提示（蓝色，信息图标）
+//  
+//  属性:
+//  - icon: String - SF Symbol 图标名称
+//  - color: Color - 主题颜色
+//
+//  ### ToastView 结构体
+//  Toast 提示视图
+//  
+//  参数:
+//  - message: String - 提示消息文本
+//  - style: ToastStyle - 样式类型
+//  - isShowing: Binding<Bool> - 显示状态绑定
+//  
+//  UI 设计:
+//  - 顶部居中显示
+//  - 圆角卡片设计
+//  - 半透明背景
+//  - 图标 + 文字布局
+//  - 滑入/滑出动画
+//
+//  ### ToastModifier 结构体
+//  Toast 修饰器
+//  
+//  ViewModifier 实现，方便使用
+//  
+//  参数:
+//  - isShowing: Binding<Bool> - 显示状态
+//  - message: String - 消息文本
+//  - style: ToastStyle - 样式
+//  - duration: TimeInterval - 显示时长
+//  
+//  功能:
+//  - 自动计时隐藏
+//  - Z 轴层级管理
+//  - 动画过渡
+//
+//  ## View 扩展
+//  
+//  ### toast(isShowing:message:style:duration:)
+//  便捷方法添加 Toast
+//  
+//  参数:
+//  - isShowing: Binding<Bool> - 显示控制
+//  - message: String - 消息内容
+//  - style: ToastStyle - 样式（默认 .info）
+//  - duration: TimeInterval - 持续时间（默认 2.0s）
+//  
+//  使用示例:
+//  ```swift
+//  .toast(
+//      isShowing: $showToast,
+//      message: "保存成功",
+//      style: .success,
+//      duration: 2.0
+//  )
+//  ```
+//
+//  ## 弃用原因
+//  - 与新的 UserGuidanceView 功能重复
+//  - UserGuidanceView 提供更好的上下文集成
+//  - 减少 UI 层级复杂度
+//
 
 #if os(iOS)
 import SwiftUI

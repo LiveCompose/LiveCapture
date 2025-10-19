@@ -2,6 +2,123 @@
 //  BoxCenterManager.swift
 //  LiveCapture
 //
+//  检测框中心点追踪管理器
+//
+//  ## 文件作用
+//  管理智能构图的追踪点位置计算和更新
+//  使用设备陀螺仪数据实现物理正确的旋转追踪模型
+//  支持前后摄像头的镜像适配和磁性吸附效果
+//
+//  ## 追踪模型原理
+//  基于物理的旋转模型，解决了传统"假设初始点在中心"的局限：
+//  1. 记录初始检测框中心点的实际位置（可在屏幕任意位置）
+//  2. 计算该点相对于屏幕中心的距离和方向
+//  3. 根据设备旋转和距离计算位移（离中心越远位移越大）
+//  4. 自适应调整：考虑变焦倍率和运动速度
+//  5. 磁性吸附：接近中心时产生吸引力稳定构图
+//
+//  ## 主要类型
+//
+//  ### BoxCenterManager 类
+//  检测框中心点管理器
+//
+//  ## Published 属性
+//  - baseCenterInView: CGPoint? - 初始检测框在视图中的中心点
+//  - currentCenterInView: CGPoint? - 应用磁性吸附后的当前中心点
+//
+//  ## 主要方法
+//
+//  ### 配置方法
+//  - updateCompositionRect(_:): 更新构图区域尺寸
+//    参数: rect - CGRect 构图区域
+//
+//  - updateZoomFactor(_:): 更新变焦倍率用于增益调整
+//    参数: factor - CGFloat 变焦倍率 (0.5~5.0)
+//
+//  - setFrontCamera(_:): 设置是否为前置摄像头
+//    参数: isFront - Bool 前置摄像头标志
+//    功能: 前置时自动镜像水平方向
+//
+//  ### 追踪控制
+//  - setBaseCenter(_:with:): 设置并锁定初始基准中心点
+//    参数:
+//      - center: CGPoint? 初始中心点位置
+//      - attitude: CMAttitude? 当前设备姿态
+//    功能:
+//      - 记录基准位置
+//      - 保存参考姿态
+//      - 重置平滑器和速度历史
+//
+//  - reset(): 重置所有追踪状态
+//    清空所有中心点、姿态和历史数据
+//
+//  - updateCenter(with:): 根据设备运动更新中心点
+//    参数: motion - CMDeviceMotion? 最新运动数据
+//    功能:
+//      - 计算相对参考姿态的旋转角度
+//      - 应用自适应平滑滤波
+//      - 调用内部更新逻辑
+//
+//  ### 对齐检测
+//  - isAlignedWithCenter(tolerance:): 检查是否对齐中心
+//    参数: tolerance - CGFloat 容差（points）
+//    返回: Bool 是否在容差范围内
+//    注意: 使用未吸附的原始位置检测
+//
+//  - distanceToCenter(): 获取到中心的距离
+//    返回: CGFloat? 距离值（points）
+//
+//  ### 内部实现
+//  - updateCenter(withNormalizedOffset:): 根据归一化偏移更新位置
+//    实现物理旋转模型的核心逻辑：
+//      1. 计算基准点到屏幕中心的向量
+//      2. 根据距离计算自适应增益
+//      3. 应用变焦补偿
+//      4. 速度预测减少延迟
+//      5. 磁性吸附平滑对齐
+//      6. 前置摄像头镜像处理
+//
+//  - applyMagneticSnap(to:): 应用磁性吸附效果
+//    参数: point - CGPoint 原始追踪点
+//    返回: CGPoint 吸附后的点
+//    特性:
+//      - 距离 < 5pt: 完全吸附到中心
+//      - 距离 5-25pt: 渐进非线性吸附
+//      - 距离 > 25pt: 不吸附
+//
+//  - calculateVelocityCompensation(): 基于速度预测补偿延迟
+//  - updateVelocityHistory(_:): 维护速度历史窗口
+//  - clamp(point:to:): 限制点在矩形区域内
+//
+//  ## 辅助类型
+//
+//  ### AdaptivePointSmoother 结构体
+//  自适应二维点平滑器
+//  - 根据运动速度动态调整响应性
+//  - 低速时更平滑（减少抖动）
+//  - 高速时更快响应（减少延迟）
+//  
+//  方法:
+//  - updateResponse(forSpeed:): 根据速度更新响应系数
+//  - filter(_:): 应用指数平滑滤波
+//  - reset(to:): 重置状态
+//
+//  ### UniformPointSmoother 结构体
+//  统一响应点平滑器
+//  - 固定响应系数的低通滤波
+//  - 用于需要一致平滑度的场景
+//
+//  ## 性能优化
+//  - 速度历史窗口限制为 5 帧
+//  - 使用 SIMD 加速向量运算
+//  - 平滑器参数经过调优平衡响应和稳定
+//
+//  ## 物理参数
+//  - maxAngle: π/6 (30°) - 最大映射角度
+//  - magneticThreshold: 25pt - 磁性吸附开始距离
+//  - magneticStrength: 0.90 - 吸附强度系数
+//  - snapThreshold: 5pt - 完全吸附距离
+//
 
 import Foundation
 import Combine
@@ -45,6 +162,9 @@ final class BoxCenterManager: ObservableObject {
 	// 新增: 自适应增益控制
 	private var currentZoomFactor: CGFloat = 1.0
 	
+	// 🔥 新增: 前置摄像头支持
+	private var isFrontCamera: Bool = false
+	
 	// 新增: 速度相关状态
 	private var lastAngularVelocity: CGPoint = .zero
 	private var velocityHistory: [CGPoint] = []
@@ -67,6 +187,12 @@ final class BoxCenterManager: ObservableObject {
 	/// - Parameter factor: 当前变焦倍率(例如 1.0, 2.0, 5.0)。
 	func updateZoomFactor(_ factor: CGFloat) {
 		currentZoomFactor = max(0.5, factor)
+	}
+	
+	/// 设置当前是否为前置摄像头。
+	/// - Parameter isFront: 是否为前置摄像头。
+	func setFrontCamera(_ isFront: Bool) {
+		isFrontCamera = isFront
 	}
 
 	/// 设置并锁定初始的基准中心点,并记录当前姿态为参考。
@@ -170,13 +296,18 @@ final class BoxCenterManager: ObservableObject {
 			y: offset.y * adaptiveGainY
 		)
 		
+		// 🔥 前置摄像头镜像调整：水平方向取反
+		let mirroredDisplacement = isFrontCamera 
+			? CGPoint(x: -displacement.x, y: displacement.y)
+			: displacement
+		
 		// 5. 速度预测补偿（减少延迟）
 		let velocityCompensation = calculateVelocityCompensation()
 		
 		// 6. 应用偏移到基准点
 		let rawTarget = CGPoint(
-			x: base.x + displacement.x + velocityCompensation.x,
-			y: base.y + displacement.y + velocityCompensation.y
+			x: base.x + mirroredDisplacement.x + velocityCompensation.x,
+			y: base.y + mirroredDisplacement.y + velocityCompensation.y
 		)
 		
 		// 7. 保存未吸附的原始位置（用于准确的对齐检测）

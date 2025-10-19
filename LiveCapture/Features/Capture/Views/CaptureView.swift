@@ -3,6 +3,103 @@
 //  LiveCapture
 //
 //  主拍摄界面
+//
+//  ## 文件作用
+//  提供智能拍摄的主界面 UI
+//  整合相机预览、控制栏、调试面板和拍摄按钮
+//  处理用户交互和动画效果
+//
+//  ## 主要组件
+//  ### CaptureView
+//  主拍摄视图（SwiftUI View）
+//
+//  ## 状态管理
+//  - viewModel: CaptureViewModel - 业务逻辑视图模型
+//  - showDebugInfo: Bool - 是否显示调试面板
+//  - pinchInitialFactor: CGFloat - 捏合手势初始倍率
+//  - pinchActive: Bool - 捏合手势是否激活
+//  - captureAnimationScale: CGFloat - 拍照动画缩放
+//  - captureFlashOpacity: Double - 闪光效果透明度
+//  - cameraFlipRotation: Double - 摄像头翻转角度
+//
+//  ## UI 结构
+//  - 黑色背景层
+//  - 相机预览层（CameraPreviewSection）
+//    - 3D 翻转动画支持
+//    - 拍照缩放动画
+//    - 捏合变焦手势
+//  - 白色闪光效果层
+//  - UI 控制层
+//    - topSection: 顶部控制栏
+//    - debugPanel: 调试面板（可展开）
+//    - bottomSection: 底部控制区
+//
+//  ## UI Sections（界面分区）
+//
+//  ### topSection
+//  顶部控制栏（TopControlBar）
+//  - 用户引导提示
+//  - 调试开关
+//  - 重置按钮
+//  - 设置菜单（切换摄像头、自动拍照等）
+//
+//  ### debugPanel
+//  调试信息面板（DebugPanel）
+//  - 运动稳定性状态
+//  - 追踪点位置
+//  - 距离信息
+//  - 变焦状态
+//  - 对齐状态
+//  - 带展开/收起动画
+//
+//  ### bottomSection
+//  底部控制区
+//  - zoomRing: 变焦环（条件显示）
+//  - captureButton: 主拍照按钮
+//  - 辅助按钮：
+//    - 相册按钮
+//    - 切换摄像头按钮
+//
+//  ## 手势处理
+//
+//  ### pinchZoomGesture
+//  捏合缩放手势（MagnificationGesture）
+//  - onChanged: 实时更新变焦倍率
+//  - onEnded: 完成变焦并锁定
+//  - 自动限制在有效变焦范围内
+//
+//  ## 动画效果
+//
+//  ### triggerCaptureAnimation()
+//  拍照动画
+//  - 白色闪光效果（0.1s 淡入 + 0.2s 淡出）
+//  - 画面缩放效果（放大到 2.0x 后恢复）
+//  - 使用 spring 动画提供弹性效果
+//
+//  ### triggerCameraFlipAnimation()
+//  摄像头切换动画
+//  - Y 轴 3D 旋转 180°
+//  - spring 动画提供平滑过渡
+//
+//  ## 辅助方法
+//  - clampedZoomFactor(for:): 限制变焦倍率在有效范围
+//
+//  ## 生命周期
+//  - onAppear: 
+//    - 调用 viewModel.onAppear() 启动服务
+//    - 设置拍照触发回调
+//  - onDisappear:
+//    - 调用 viewModel.onDisappear() 停止服务
+//
+//  ## 导航
+//  - navigationBarBackButtonHidden: 隐藏默认返回按钮
+//  - 通过 dismiss 环境值返回主页
+//
+//  ## 响应式设计
+//  - 使用 GeometryReader 适配屏幕尺寸
+//  - 根据 safeAreaInsets 调整底部间距
+//  - 支持不同屏幕方向
+//
 
 import SwiftUI
 import AVFoundation
@@ -17,6 +114,7 @@ struct CaptureView: View {
 	@State private var pinchActive = false
 	@State private var captureAnimationScale: CGFloat = 1.0
 	@State private var captureFlashOpacity: Double = 0.0
+	@State private var cameraFlipRotation: Double = 0.0
 	@Environment(\.dismiss) private var dismiss
 	
 	var body: some View {
@@ -44,7 +142,13 @@ struct CaptureView: View {
 				)
 				.frame(width: geo.size.width, height: geo.size.height)
 				.scaleEffect(captureAnimationScale)
+				.rotation3DEffect(
+					.degrees(cameraFlipRotation),
+					axis: (x: 0, y: 1, z: 0),
+					perspective: 0.5
+				)
 				.animation(.spring(response: 0.3, dampingFraction: 0.6), value: captureAnimationScale)
+				.animation(.spring(response: 0.5, dampingFraction: 0.75), value: cameraFlipRotation)
 				.ignoresSafeArea()
 				.zIndex(0)
 				.gesture(pinchZoomGesture)
@@ -79,12 +183,6 @@ struct CaptureView: View {
 			}
 		}
 		.navigationBarBackButtonHidden(true)
-		.toast(
-			isShowing: $viewModel.showSaveToast,
-			message: "照片已保存到相册",
-			style: .success,
-			duration: 2.0
-		)
 		.onAppear {
 			viewModel.onAppear()
 			viewModel.onCaptureTriggered = {
@@ -113,6 +211,7 @@ struct CaptureView: View {
 				}
 			},
 			onToggleCamera: {
+				triggerCameraFlipAnimation()
 				viewModel.toggleCameraPosition()
 			},
 			onToggleAutoCapture: {
@@ -166,6 +265,7 @@ struct CaptureView: View {
 				Spacer()
 				SecondaryCircleButton(systemName: "arrow.triangle.2.circlepath.camera") {
 					HapticManager.shared.light()
+					triggerCameraFlipAnimation()
 					viewModel.toggleCameraPosition()
 				}
 			}
@@ -241,6 +341,13 @@ struct CaptureView: View {
 			withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
 				captureAnimationScale = 1.0
 			}
+		}
+	}
+	
+	private func triggerCameraFlipAnimation() {
+		// 3D 翻转动画
+		withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
+			cameraFlipRotation += 180
 		}
 	}
 }

@@ -3,6 +3,85 @@
 //  LiveCapture
 //
 //  调试信息面板组件
+//
+//  ## 文件作用
+//  在拍摄界面顶部显示详细的调试信息
+//  方便开发和测试时查看系统状态
+//  提供分组化的信息展示
+//
+//  ## 主要组件
+//  ### DebugPanel
+//  调试信息面板视图
+//
+//  ## 输入参数
+//  - debugMessage: String - 调试消息文本
+//  - motionIsStable: Bool - 运动是否稳定
+//  - boxCenterInView: CGPoint? - 追踪点位置
+//  - distanceToCenter: CGFloat? - 到中心的距离
+//  - detectionReady: Bool - 检测是否就绪
+//  - zoomDisplayText: String - 变焦显示文本
+//  - focalLengthText: String - 焦距显示文本
+//  - isAligned: Bool - 是否对齐
+//  - onClose: () -> Void - 关闭回调
+//
+//  ## UI 结构
+//  标题栏:
+//  - 图标徽章（chart.bar.fill）
+//  - "调试信息" 标题
+//  - Spacer
+//  - 关闭按钮（xmark.circle.fill）
+//
+//  信息分组:
+//  1. 状态信息
+//     - 运动稳定性（绿/黄指示器）
+//     - 检测就绪状态（绿/灰指示器）
+//     - 对齐状态（绿/灰指示器）
+//
+//  2. 追踪信息
+//     - 追踪点位置坐标
+//     - 到中心的距离
+//
+//  3. 相机信息
+//     - 变焦倍率
+//     - 等效焦距
+//
+//  4. 调试消息
+//     - 系统调试文本
+//
+//  ## UI 组件
+//  - DebugInfoRow: 私有行组件
+//    参数:
+//      - label: String - 标签文本
+//      - value: String - 值文本
+//      - color: Color? - 可选高亮颜色
+//    样式: 左对齐标签 + 右对齐值
+//
+//  - StatusIndicator: 私有状态指示器
+//    参数:
+//      - isActive: Bool - 激活状态
+//      - activeColor: Color - 激活颜色
+//      - inactiveColor: Color - 未激活颜色
+//      - label: String - 标签文本
+//    样式: 圆点指示器 + 标签
+//
+//  ## 视觉设计
+//  - 半透明深色背景
+//  - 毛玻璃效果（.ultraThinMaterial）
+//  - 圆角卡片设计
+//  - 渐变色边框
+//  - 分组标题和分隔线
+//
+//  ## 交互
+//  - 点击关闭按钮触发 onClose 回调
+//  - 展开/收起动画由父组件控制
+//
+//  ## 辅助方法
+//  - formatCoordinate(_:): 格式化坐标点
+//    返回: "x: 123.4, y: 567.8"
+//  
+//  - formatDistance(_:): 格式化距离值
+//    返回: "12.3 pt"
+//
 
 import SwiftUI
 

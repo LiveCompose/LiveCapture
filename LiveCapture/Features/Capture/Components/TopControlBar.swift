@@ -3,6 +3,59 @@
 //  LiveCapture
 //
 //  顶部控制栏组件
+//
+//  ## 文件作用
+//  提供拍摄界面顶部的控制栏UI
+//  集成用户引导、重置按钮和设置菜单
+//  处理各种控制操作的回调
+//
+//  ## 主要组件
+//  ### TopControlBar
+//  顶部控制栏视图
+//
+//  ## 输入参数
+//  - userGuidanceText: String - 用户引导文字
+//  - showDebugInfo: Bool - 调试面板显示状态
+//  - isAutoCaptureEnabled: Bool - 自动拍照开关状态
+//  - captureDelay: Double - 拍照延迟时间（秒）
+//
+//  ## 回调闭包
+//  - onReset: () -> Void - 重置检测状态
+//  - onToggleDebug: () -> Void - 切换调试面板
+//  - onToggleCamera: () -> Void - 切换摄像头
+//  - onToggleAutoCapture: () -> Void - 切换自动拍照
+//  - onSetCaptureDelay: (Double) -> Void - 设置拍照延迟
+//
+//  ## UI 布局
+//  左侧:
+//  - TopCircleButton: 重置按钮（arrow.clockwise 图标）
+//
+//  中间:
+//  - UserGuidanceView: 用户引导提示（条件显示）
+//
+//  右侧:
+//  - Menu: 设置菜单
+//    - 调试模式开关
+//    - 相机设置子菜单
+//      - 切换镜头
+//      - 锁定焦点（待实现）
+//    - 拍摄设置子菜单
+//      - 自动拍照开关
+//      - 延迟设置（0.5/1.0/1.5/2.0秒）
+//    - 帮助和关于
+//
+//  ## 交互反馈
+//  - 使用 HapticManager 提供触觉反馈
+//  - 不同操作使用不同反馈强度
+//    - medium: 重置操作
+//    - selection: 菜单选择
+//    - light/soft: 辅助操作
+//
+//  ## 子组件
+//  - TopCircleButton: 自定义圆形按钮（私有组件）
+//    样式: 半透明背景，白色图标
+//    功能: 点击回调和触觉反馈
+//
 
 import SwiftUI
 

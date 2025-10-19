@@ -3,6 +3,52 @@
 //  LiveCapture
 //
 //  用户引导视图组件
+//
+//  ## 文件作用
+//  在顶部中央显示动态的用户操作引导
+//  根据不同的流程阶段提供文字和图标提示
+//  使用不同颜色表示不同状态
+//
+//  ## 主要组件
+//  ### UserGuidanceView
+//  用户引导胶囊视图
+//
+//  ## 输入参数
+//  - guidanceText: String - 引导文字内容
+//
+//  ## UI 设计
+//  - 胶囊形状背景
+//  - 半透明黑色底色
+//  - 根据状态动态变化的边框颜色
+//  - 左侧状态图标 + 右侧文字
+//
+//  ## 状态映射
+//
+//  ### statusIcon(for:) 方法
+//  根据引导文字返回对应的 SF Symbol 图标
+//  - "启动" → "power"
+//  - "保持"/"稳定" → "hand.raised.fill"
+//  - "识别"/"检测" → "viewfinder"
+//  - "移动"/"对准" → "arrow.up.and.down.and.arrow.left.and.right"
+//  - "即将"/"拍照" → "camera.fill"
+//  - "保存"/"完成" → "checkmark.circle.fill"
+//  - "错误" → "exclamationmark.triangle.fill"
+//  - 默认 → "info.circle.fill"
+//
+//  ### statusColor(for:) 方法
+//  根据引导文字返回对应的状态颜色
+//  - "错误" → DesignSystem.Colors.error（红色）
+//  - "保存"/"完成"/"即将" → DesignSystem.Colors.success（绿色）
+//  - "保持"/"稳定" → DesignSystem.Colors.warning（黄色）
+//  - "识别"/"检测" → DesignSystem.Colors.info（蓝色）
+//  - 默认 → DesignSystem.Colors.primary
+//
+//  ## 视觉特点
+//  - 条件显示：文字为空时不渲染
+//  - 单行文字，超出截断
+//  - 圆角设计，边框高亮
+//  - 与状态相关的视觉反馈
+//
 
 import SwiftUI
 

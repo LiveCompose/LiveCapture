@@ -2,7 +2,50 @@
 //  CameraManager+Session.swift
 //  LiveCapture
 //
-//  Created by GitHub Copilot on 2025/10/13.
+//  相机会话管理扩展
+//
+//  ## 文件作用
+//  负责 AVCaptureSession 的配置、启动、停止和摄像头切换
+//  处理相机权限检查和设备选择逻辑
+//
+//  ## 主要方法
+//
+//  ### 会话配置
+//  - checkAndConfigure(completion:): 检查相机权限并配置会话
+//    参数: completion - 配置结果回调
+//    返回: Result<Void, Error>
+//
+//  - configureSessionAsync(completion:): 在后台队列异步配置会话
+//    参数: completion - 配置结果回调
+//
+//  - configureSession(): 同步配置会话，设置输入输出和稳定参数
+//    抛出: CameraError 如果配置失败
+//
+//  ### 会话控制
+//  - startSession(): 启动相机会话
+//  - stopSession(): 停止相机会话
+//
+//  ### 摄像头切换
+//  - toggleCameraPosition(): 在前后摄像头之间切换
+//    自动更新输入、配置变焦、调整镜像和旋转
+//
+//  ### 设备选择
+//  - selectInitialDevice(for:): 根据位置选择初始摄像头设备
+//    参数: position - AVCaptureDevice.Position (.back/.front)
+//    返回: AVCaptureDevice
+//    抛出: CameraError.noDeviceFound 如果找不到设备
+//
+//  - refreshBackCameraCatalog(): 刷新后置摄像头的镜头目录
+//    建立不同焦距镜头（超广角、广角、长焦）的映射
+//
+//  ### 辅助方法
+//  - configureStabilization(for:): 配置视频稳定模式
+//    参数: connection - AVCaptureConnection
+//
+//  ## 依赖关系
+//  - 依赖 CameraManager 主类的属性和方法
+//  - 使用 sessionQueue 确保线程安全
+//  - 调用 configureZoomCapabilities 配置变焦能力
 //
 
 import Foundation

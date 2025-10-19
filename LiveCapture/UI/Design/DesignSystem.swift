@@ -2,7 +2,117 @@
 //  DesignSystem.swift
 //  LiveCapture
 //
-//  统一的设计系统，定义颜色、字体、样式等
+//  统一的设计系统
+//
+//  ## 文件作用
+//  定义应用的所有视觉设计规范
+//  包括颜色、字体、动画、圆角等常量
+//  确保整个应用的视觉一致性
+//
+//  ## 主要枚举
+//
+//  ### Colors 颜色系统
+//  
+//  #### 主色调
+//  - primary: Color - 清新蓝色 (0.0, 0.48, 1.0)
+//  - secondary: Color - 紫罗兰 (0.35, 0.34, 0.84)
+//  - accent: Color - 活力橙 (1.0, 0.58, 0.0)
+//
+//  #### 语义化颜色
+//  - success: Color - 成功绿 (0.2, 0.78, 0.35)
+//  - warning: Color - 警告黄 (1.0, 0.8, 0.0)
+//  - error: Color - 错误红 (1.0, 0.23, 0.19)
+//  - info: Color - 信息蓝 (0.35, 0.78, 0.98)
+//
+//  #### 文字颜色
+//  - textPrimary: Color - 主文字（白色）
+//  - textSecondary: Color - 次要文字（80% 白色）
+//  - textTertiary: Color - 三级文字（60% 白色）
+//
+//  #### 背景颜色
+//  - backgroundPrimary: Color - 主背景（黑色）
+//  - backgroundSecondary: Color - 次背景（10% 白色）
+//  - backgroundTertiary: Color - 三级背景（5% 白色）
+//
+//  #### 渐变色
+//  - primaryGradient: LinearGradient - 主色调渐变
+//  - accentGradient: LinearGradient - 强调色渐变
+//  - successGradient: LinearGradient - 成功色渐变
+//  - warningGradient: LinearGradient - 警告色渐变
+//  - errorGradient: LinearGradient - 错误色渐变
+//
+//  ### Typography 字体系统
+//  
+//  #### 标题
+//  - largeTitle: Font - 大标题 (34pt, bold, rounded)
+//  - title1: Font - 一级标题 (28pt, bold, rounded)
+//  - title2: Font - 二级标题 (22pt, bold, rounded)
+//  - title3: Font - 三级标题 (20pt, semibold, rounded)
+//
+//  #### 正文
+//  - headline: Font - 标题文字 (17pt, semibold, rounded)
+//  - body: Font - 正文 (17pt, regular, rounded)
+//  - callout: Font - 提示文字 (16pt, regular, rounded)
+//  - subheadline: Font - 子标题 (15pt, regular, rounded)
+//  - footnote: Font - 脚注 (13pt, regular, rounded)
+//  - caption1: Font - 说明文字1 (12pt, regular, rounded)
+//  - caption2: Font - 说明文字2 (11pt, regular, rounded)
+//
+//  ### Spacing 间距系统
+//  标准化的间距值：
+//  - xxSmall: CGFloat = 4
+//  - xSmall: CGFloat = 8
+//  - small: CGFloat = 12
+//  - medium: CGFloat = 16
+//  - large: CGFloat = 24
+//  - xLarge: CGFloat = 32
+//  - xxLarge: CGFloat = 48
+//
+//  ### CornerRadius 圆角系统
+//  标准化的圆角值：
+//  - small: CGFloat = 8
+//  - medium: CGFloat = 12
+//  - large: CGFloat = 16
+//  - xLarge: CGFloat = 24
+//  - circle: CGFloat = .infinity
+//
+//  ### Shadow 阴影系统
+//  预定义的阴影效果：
+//  - small: (color, radius, x, y)
+//    轻微阴影，用于卡片
+//  - medium: (color, radius, x, y)
+//    中等阴影，用于浮动元素
+//  - large: (color, radius, x, y)
+//    深度阴影，用于模态对话框
+//
+//  ### Animation 动画系统
+//  标准化的动画配置：
+//  - quick: Animation - 快速动画 (0.2s, easeOut)
+//  - smooth: Animation - 平滑动画 (0.3s, easeInOut)
+//  - bouncy: Animation - 弹性动画 (spring, 0.5s, 0.7)
+//  - gentle: Animation - 柔和动画 (spring, 0.6s, 0.8)
+//
+//  ## 使用示例
+//  ```swift
+//  Text("标题")
+//      .font(DesignSystem.Typography.title1)
+//      .foregroundColor(DesignSystem.Colors.textPrimary)
+//  
+//  Rectangle()
+//      .fill(DesignSystem.Colors.primaryGradient)
+//      .cornerRadius(DesignSystem.CornerRadius.large)
+//  
+//  withAnimation(DesignSystem.Animation.smooth) {
+//      // 动画代码
+//  }
+//  ```
+//
+//  ## 设计原则
+//  - 一致性：统一的视觉语言
+//  - 可访问性：清晰的颜色对比
+//  - 可维护性：集中管理设计参数
+//  - 灵活性：易于调整和扩展
+//
 
 #if os(iOS)
 import SwiftUI

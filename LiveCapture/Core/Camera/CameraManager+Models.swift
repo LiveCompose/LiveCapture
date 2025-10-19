@@ -2,7 +2,57 @@
 //  CameraManager+Models.swift
 //  LiveCapture
 //
-//  Created by GitHub Copilot on 2025/10/13.
+//  相机数据模型定义
+//
+//  ## 文件作用
+//  定义相机管理器使用的所有数据模型和枚举类型
+//  包括镜头类型、变焦预设、状态结构和错误类型
+//
+//  ## 主要类型
+//
+//  ### LensKind 枚举
+//  定义可用的镜头类型
+//  - case ultraWide: 超广角镜头（0.5x, 13mm）
+//  - case wide: 广角镜头（1x, 24mm）
+//  - case telephoto: 长焦镜头（3x, 77mm）
+//  - case front: 前置镜头（1x, 24mm）
+//
+//  属性:
+//  - approximateFocalLength: Int - 等效焦距（毫米）
+//  - opticalZoomFactor: CGFloat - 默认光学变焦倍率
+//  - displayName: String - UI 显示名称（如 "1×"）
+//  - symbolName: String - SF Symbol 图标名称
+//
+//  ### ZoomPreset 结构体
+//  变焦环的离散预设点
+//  - lens: LensKind - 关联的镜头类型
+//  - zoomFactor: CGFloat - 变焦倍率
+//  - focalLength: Int - 焦距值
+//  - style: Style - 预设样式（primary/secondary）
+//
+//  计算属性:
+//  - label: String - 倍率标签（如 "2×"）
+//  - focalLengthLabel: String - 焦距标签（如 "24mm"）
+//
+//  ### ZoomState 结构体
+//  实时变焦状态
+//  - currentFactor: CGFloat - 当前实际倍率
+//  - displayedFactor: CGFloat - UI 显示的倍率
+//  - focalLength: Int - 当前等效焦距
+//  - activeLens: LensKind - 当前使用的镜头
+//  - isContinuous: Bool - 是否为连续变焦模式
+//
+//  ### CameraError 枚举
+//  相机操作可能的错误类型
+//  - case notAuthorized: 未授权访问相机
+//  - case noDeviceFound: 找不到可用设备
+//  - case cannotAddInput: 无法添加输入
+//  - case cannotAddOutput: 无法添加输出
+//
+//  ## 用途
+//  - 为 UI 提供类型安全的镜头和变焦信息
+//  - 统一管理变焦相关的所有数据结构
+//  - 简化相机状态的发布和订阅
 //
 
 import Foundation
