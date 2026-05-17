@@ -20,11 +20,13 @@ final class CommunityViewModel: ObservableObject {
         PhotoStorageService.shared.toggleShared(for: id)
     }
 
-    func photoURL(for id: UUID) -> URL? {
-        PhotoStorageService.shared.photoURL(for: id)
-    }
-
     func thumbnail(for id: UUID) -> UIImage? {
         PhotoStorageService.shared.thumbnail(for: id)
+    }
+
+    func fullPhoto(for id: UUID) -> UIImage? {
+        guard let url = PhotoStorageService.shared.photoURL(for: id),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
     }
 }

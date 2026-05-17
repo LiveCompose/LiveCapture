@@ -19,19 +19,12 @@ struct SharedPhotoCard: View {
             }
             .clipped()
             .overlay(alignment: .bottomTrailing) {
-                if let photoURL = PhotoStorageService.shared.photoURL(for: record.id) {
-                    ShareLink(
-                        item: photoURL,
-                        preview: SharePreview("LiveCapture Photo")
-                    ) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
-                            .padding(8)
-                            .background(Circle().fill(Color.black.opacity(0.6)))
-                            .padding(6)
-                    }
-                }
+                Image(systemName: "square.and.arrow.up.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(5)
+                    .background(Circle().fill(Color.black.opacity(0.5)))
+                    .padding(4)
             }
             .onAppear {
                 guard thumbnail == nil else { return }

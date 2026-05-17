@@ -4,6 +4,7 @@ import UIKit
 
 final class HomeViewModel: ObservableObject {
     @Published private(set) var records: [PhotoRecord] = []
+    @Published var showCapture = false
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
@@ -26,5 +27,11 @@ final class HomeViewModel: ObservableObject {
 
     func thumbnail(for id: UUID) -> UIImage? {
         PhotoStorageService.shared.thumbnail(for: id)
+    }
+
+    func fullPhoto(for id: UUID) -> UIImage? {
+        guard let url = PhotoStorageService.shared.photoURL(for: id),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
     }
 }

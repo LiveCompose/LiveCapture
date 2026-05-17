@@ -1,11 +1,10 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @State private var selectedTab: Tab = .capture
+    @State private var selectedTab: Tab = .home
 
     enum Tab: String, Hashable {
         case home
-        case capture
         case community
     }
 
@@ -13,19 +12,13 @@ struct MainTabView: View {
         TabView(selection: $selectedTab) {
             HomeView()
                 .tabItem {
-                    Label("Photos", systemImage: selectedTab == .home ? "photo.fill" : "photo")
+                    Label("相册", systemImage: selectedTab == .home ? "photo.fill" : "photo")
                 }
                 .tag(Tab.home)
 
-            CaptureView()
-                .tabItem {
-                    Label("Capture", systemImage: selectedTab == .capture ? "camera.fill" : "camera")
-                }
-                .tag(Tab.capture)
-
             CommunityView()
                 .tabItem {
-                    Label("Community", systemImage: selectedTab == .community ? "square.and.arrow.up.fill" : "square.and.arrow.up")
+                    Label("社区", systemImage: selectedTab == .community ? "square.and.arrow.up.fill" : "square.and.arrow.up")
                 }
                 .tag(Tab.community)
         }
