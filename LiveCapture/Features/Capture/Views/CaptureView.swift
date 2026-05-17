@@ -198,31 +198,43 @@ struct CaptureView: View {
 	// MARK: - UI Sections
 	
 	private var topSection: some View {
-		TopControlBar(
-			userGuidanceText: viewModel.userGuidanceText,
-			showDebugInfo: showDebugInfo,
-			isAutoCaptureEnabled: viewModel.isAutoCaptureEnabled,
-			captureDelay: viewModel.captureDelay,
-			onReset: {
-				viewModel.resetDetectionState()
-			},
-			onToggleDebug: {
-				withAnimation(DesignSystem.Animation.smooth) {
-					showDebugInfo.toggle()
-				}
-			},
-			onToggleCamera: {
-				triggerCameraFlipAnimation()
-				viewModel.toggleCameraPosition()
-			},
-			onToggleAutoCapture: {
-				viewModel.toggleAutoCapture()
-			},
-			onSetCaptureDelay: { delay in
-				viewModel.setCaptureDelay(delay)
+		HStack(spacing: 12) {
+			Button {
+				dismiss()
+			} label: {
+				Image(systemName: "chevron.left")
+					.font(.system(size: 16, weight: .semibold))
+					.foregroundColor(.white)
+					.padding(10)
+					.background(Circle().fill(Color.black.opacity(0.4)))
 			}
-		)
-		.padding(.horizontal, 20)
+
+			TopControlBar(
+				userGuidanceText: viewModel.userGuidanceText,
+				showDebugInfo: showDebugInfo,
+				isAutoCaptureEnabled: viewModel.isAutoCaptureEnabled,
+				captureDelay: viewModel.captureDelay,
+				onReset: {
+					viewModel.resetDetectionState()
+				},
+				onToggleDebug: {
+					withAnimation(DesignSystem.Animation.smooth) {
+						showDebugInfo.toggle()
+					}
+				},
+				onToggleCamera: {
+					triggerCameraFlipAnimation()
+					viewModel.toggleCameraPosition()
+				},
+				onToggleAutoCapture: {
+					viewModel.toggleAutoCapture()
+				},
+				onSetCaptureDelay: { delay in
+					viewModel.setCaptureDelay(delay)
+				}
+			)
+			.padding(.horizontal, 20)
+		}
 	}
 	
 	private var debugPanel: some View {
@@ -259,16 +271,13 @@ struct CaptureView: View {
 			
 			// 辅助按钮
 			HStack {
-				SecondaryCircleButton(systemName: "photo.on.rectangle") {
-					HapticManager.shared.light()
-					viewModel.openSystemPhotoLibrary()
-				}
 				Spacer()
 				SecondaryCircleButton(systemName: "arrow.triangle.2.circlepath.camera") {
 					HapticManager.shared.light()
 					triggerCameraFlipAnimation()
 					viewModel.toggleCameraPosition()
 				}
+				Spacer()
 			}
 		}
 		.padding(.horizontal, 24)

@@ -1,109 +1,76 @@
 import UIKit
 
 enum ShareCardGenerator {
-    private static let cardAspectRatio: CGFloat = 3.0 / 4.0
     private static let cardWidth: CGFloat = 1080
+    private static let photoInset: CGFloat = 60
+    private static let topPadding: CGFloat = 120
+    private static let bottomReserved: CGFloat = 220
 
     static func generate(photo: UIImage) -> UIImage? {
         let photoSize = photo.size
         guard photoSize.width > 0, photoSize.height > 0 else { return nil }
 
-        let cardHeight = cardWidth / cardAspectRatio
+        let photoAspect = photoSize.width / photoSize.height
+        let photoAreaWidth = cardWidth - photoInset * 2
+        let photoAreaHeight = photoAreaWidth / photoAspect
+        let cardHeight = topPadding + photoAreaHeight + bottomReserved
         let cardSize = CGSize(width: cardWidth, height: cardHeight)
 
-        let renderer = UIGraphicsImageRenderer(size: cardSize, format: {
-            let f = UIGraphicsImageRendererFormat.default()
-            f.scale = 1
-            f.opaque = true
-            return f
-        }())
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: cardSize, format: format)
 
         return renderer.image { ctx in
             // 白色背景
             UIColor.white.setFill()
             ctx.fill(CGRect(origin: .zero, size: cardSize))
 
-            // 照片区域：白色边框 + 照片
-            let borderWidth: CGFloat = 40
-            let topPadding: CGFloat = 100
-            let bottomReserved: CGFloat = 200
-            let photoAreaWidth = cardWidth - borderWidth * 2
-            let photoAreaHeight = cardHeight - topPadding - bottomReserved
-            let photoRect = CGRect(x: borderWidth, y: topPadding, width: photoAreaWidth, height: photoAreaHeight)
+            // 照片区域
+            let photoRect = CGRect(x: photoInset, y: topPadding, width: photoAreaWidth, height: photoAreaHeight)
+            photo.draw(in: photoRect)
 
-            // 在照片区域内按比例缩放居中放置照片
-            let photoAspect = photoSize.width / photoSize.height
-            let areaAspect = photoAreaWidth / photoAreaHeight
-
-            var drawWidth: CGFloat
-            var drawHeight: CGFloat
-            if photoAspect > areaAspect {
-                drawWidth = photoAreaWidth
-                drawHeight = photoAreaWidth / photoAspect
-            } else {
-                drawHeight = photoAreaHeight
-                drawWidth = photoAreaHeight * photoAspect
-            }
-            let drawX = photoRect.midX - drawWidth / 2
-            let drawY = photoRect.midY - drawHeight / 2
-            let drawRect = CGRect(x: drawX, y: drawY, width: drawWidth, height: drawHeight)
-
-            // 裁剪圆角遮罩
-            let clipPath = UIBezierPath(roundedRect: photoRect, cornerRadius: 8)
-            ctx.cgContext.addPath(clipPath.cgPath)
-            ctx.cgContext.clip()
-            photo.draw(in: drawRect)
-            ctx.cgContext.resetClip()
-
-            // 白色边框描边
-            UIColor.white.setStroke()
-            let borderPath = UIBezierPath(roundedRect: photoRect, cornerRadius: 8)
-            borderPath.lineWidth = 3
+            // 照片边框
+            UIColor(white: 0.9, alpha: 1).setStroke()
+            let borderPath = UIBezierPath(rect: photoRect)
+            borderPath.lineWidth = 1
             borderPath.stroke()
 
-            // 底部 Logo + 文字区域
-            let bottomY = photoRect.maxY + 30
+            // 底部文字
+            let bottomY = photoRect.maxY + 36
 
-            // LiveCapture 文字
             let titleText = "LiveCapture"
-            let titleFont = UIFont.systemFont(ofSize: 48, weight: .bold)
-            let titleAttributes: [NSAttributedString.Key: Any] = [
+            let titleFont = UIFont.systemFont(ofSize: 52, weight: .bold)
+            let titleAttr: [NSAttributedString.Key: Any] = [
                 .font: titleFont,
                 .foregroundColor: UIColor.black
             ]
-            let titleSize = titleText.size(withAttributes: titleAttributes)
-            let titleRect = CGRect(
-                x: (cardWidth - titleSize.width) / 2,
-                y: bottomY,
-                width: titleSize.width,
-                height: titleSize.height
+            let titleSize = titleText.size(withAttributes: titleAttr)
+            titleText.draw(
+                in: CGRect(x: (cardWidth - titleSize.width) / 2, y: bottomY, width: titleSize.width, height: titleSize.height),
+                withAttributes: titleAttr
             )
-            titleText.draw(in: titleRect, withAttributes: titleAttributes)
 
-            // 中文副标题
-            let subtitleText = "构妙 · 智能构图助手"
-            let subtitleFont = UIFont.systemFont(ofSize: 28, weight: .regular)
-            let subtitleAttributes: [NSAttributedString.Key: Any] = [
-                .font: subtitleFont,
+            let subText = "构妙 · 智能构图助手"
+            let subFont = UIFont.systemFont(ofSize: 28, weight: .regular)
+            let subAttr: [NSAttributedString.Key: Any] = [
+                .font: subFont,
                 .foregroundColor: UIColor(white: 0.4, alpha: 1)
             ]
-            let subtitleSize = subtitleText.size(withAttributes: subtitleAttributes)
-            let subtitleRect = CGRect(
-                x: (cardWidth - subtitleSize.width) / 2,
-                y: titleRect.maxY + 8,
-                width: subtitleSize.width,
-                height: subtitleSize.height
+            let subSize = subText.size(withAttributes: subAttr)
+            subText.draw(
+                in: CGRect(x: (cardWidth - subSize.width) / 2, y: bottomY + titleSize.height + 8, width: subSize.width, height: subSize.height),
+                withAttributes: subAttr
             )
-            subtitleText.draw(in: subtitleRect, withAttributes: subtitleAttributes)
 
-            // 微信风格分隔线 + 标识
-            let lineY = subtitleRect.maxY + 20
-            let linePath = UIBezierPath()
-            linePath.move(to: CGPoint(x: cardWidth * 0.2, y: lineY))
-            linePath.addLine(to: CGPoint(x: cardWidth * 0.8, y: lineY))
+            // 分隔线
+            let lineY = bottomY + titleSize.height + subSize.height + 24
+            let line = UIBezierPath()
+            line.move(to: CGPoint(x: cardWidth * 0.25, y: lineY))
+            line.addLine(to: CGPoint(x: cardWidth * 0.75, y: lineY))
             UIColor(white: 0.85, alpha: 1).setStroke()
-            linePath.lineWidth = 1
-            linePath.stroke()
+            line.lineWidth = 1
+            line.stroke()
         }
     }
 }

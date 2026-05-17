@@ -2,23 +2,21 @@ import SwiftUI
 
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
+    @State private var selectedPhotoIndex: Int?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
-                    // 顶部标题区
                     headerSection
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
                         .padding(.bottom, 16)
 
-                    // 拍摄入口按钮
                     captureButton
                         .padding(.horizontal, 20)
                         .padding(.bottom, 20)
 
-                    // 分隔线
                     if !viewModel.records.isEmpty {
                         Divider()
                             .background(DesignSystem.Colors.backgroundSecondary)
@@ -26,7 +24,6 @@ struct HomeView: View {
                             .padding(.bottom, 12)
                     }
 
-                    // 照片网格 / 空状态
                     if viewModel.records.isEmpty {
                         emptyStateView
                     } else {
@@ -38,27 +35,16 @@ struct HomeView: View {
             .background(Color.black)
             .navigationBarHidden(true)
             .fullScreenCover(isPresented: $viewModel.showCapture) {
-                ZStack {
-                    CaptureView()
-
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Button {
-                                viewModel.showCapture = false
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .padding(10)
-                                    .background(Circle().fill(Color.black.opacity(0.5)))
-                            }
-                            .padding(.trailing, 16)
-                            .padding(.top, 56)
-                        }
-                        Spacer()
+                CaptureView()
+            }
+            .navigationDestination(item: $selectedPhotoIndex) { index in
+                PhotoBrowserView(
+                    records: viewModel.records,
+                    initialIndex: index,
+                    photoProvider: { [weak viewModel] id in
+                        viewModel?.fullPhoto(for: id)
                     }
-                }
+                )
             }
         }
     }
@@ -124,12 +110,9 @@ struct HomeView: View {
             columns: Array(repeating: .init(.flexible(), spacing: 2), count: 3),
             spacing: 2
         ) {
-            ForEach(viewModel.records) { record in
-                NavigationLink {
-                    PhotoDetailView(
-                        record: record,
-                        photo: viewModel.fullPhoto(for: record.id) ?? UIImage()
-                    )
+            ForEach(Array(viewModel.records.enumerated()), id: \.element.id) { index, record in
+                Button {
+                    selectedPhotoIndex = index
                 } label: {
                     PhotoCard(
                         record: record,
@@ -181,4 +164,10 @@ struct HomeView: View {
                 .foregroundColor(DesignSystem.Colors.textTertiary)
         }
     }
+}
+
+// MARK: - Identifiable Int wrapper for navigationDestination
+
+extension Int: @retroactive Identifiable {
+    public var id: Int { self }
 }

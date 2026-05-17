@@ -2,12 +2,12 @@ import SwiftUI
 
 struct CommunityView: View {
     @StateObject private var viewModel = CommunityViewModel()
+    @State private var selectedPhotoIndex: Int?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
-                    // 头部标题
                     VStack(spacing: 4) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
@@ -25,7 +25,6 @@ struct CommunityView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 16)
 
-                    // 分隔线
                     if !viewModel.sharedRecords.isEmpty {
                         Divider()
                             .background(DesignSystem.Colors.backgroundSecondary)
@@ -33,7 +32,6 @@ struct CommunityView: View {
                             .padding(.bottom, 12)
                     }
 
-                    // 内容
                     if viewModel.sharedRecords.isEmpty {
                         emptyStateView
                     } else {
@@ -44,6 +42,15 @@ struct CommunityView: View {
             }
             .background(Color.black)
             .navigationBarHidden(true)
+            .navigationDestination(item: $selectedPhotoIndex) { index in
+                PhotoBrowserView(
+                    records: viewModel.sharedRecords,
+                    initialIndex: index,
+                    photoProvider: { [weak viewModel] id in
+                        viewModel?.fullPhoto(for: id)
+                    }
+                )
+            }
         }
     }
 
@@ -52,11 +59,9 @@ struct CommunityView: View {
             columns: Array(repeating: .init(.flexible(), spacing: 2), count: 3),
             spacing: 2
         ) {
-            ForEach(viewModel.sharedRecords) { record in
-                NavigationLink {
-                    if let photo = viewModel.fullPhoto(for: record.id) {
-                        PhotoDetailView(record: record, photo: photo)
-                    }
+            ForEach(Array(viewModel.sharedRecords.enumerated()), id: \.element.id) { index, record in
+                Button {
+                    selectedPhotoIndex = index
                 } label: {
                     SharedPhotoCard(
                         record: record,
