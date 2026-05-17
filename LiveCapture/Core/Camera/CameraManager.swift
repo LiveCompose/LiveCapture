@@ -89,6 +89,7 @@ final class CameraManager: NSObject, ObservableObject {
 
     /// 视频帧到达时的回调，运行在 `videoOutputQueue` 上。
     var onSampleBuffer: ((CMSampleBuffer) -> Void)?
+	    var onPhotoDataReady: ((Data) -> Void)?
 
     /// 最新的像素缓冲，仅用于调试预览。
     var lastPixelBuffer: CVPixelBuffer? = nil

@@ -492,6 +492,9 @@ final class CaptureViewModel: ObservableObject {
 			guard let self else { return }
 			self.handleSampleBuffer(sample)
 		}
+		camera.onPhotoDataReady = { data in
+			PhotoStorageService.shared.savePhoto(data: data)
+		}
 	}
 	
 	private func handleSampleBuffer(_ sample: CMSampleBuffer) {
