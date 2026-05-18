@@ -2,4 +2,4 @@ build/
 test/
 .vscode/
 .DS_Store
-/LiveCapture.xcodeproj
+/LiveCapture.xcodeproj/
