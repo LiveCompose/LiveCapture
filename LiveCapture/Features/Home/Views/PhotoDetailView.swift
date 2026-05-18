@@ -97,8 +97,12 @@ struct PhotoBrowserView: View {
         }
         .navigationBarHidden(true)
         .sheet(isPresented: $showShareSheet) {
-            if let shareImage {
-                ShareSheet(items: [shareImage])
+            Group {
+                if let shareImage {
+                    ShareSheet(items: [shareImage])
+                } else {
+                    ProgressView("正在生成分享卡片...")
+                }
             }
         }
     }

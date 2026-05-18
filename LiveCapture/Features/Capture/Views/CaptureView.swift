@@ -30,17 +30,17 @@
 //    - 捏合变焦手势
 //  - 白色闪光效果层
 //  - UI 控制层
-//    - topSection: 顶部控制栏
+//    - topSection: 顶部控制栏（含返回按钮和设置菜单）
 //    - debugPanel: 调试面板（可展开）
-//    - bottomSection: 底部控制区
+//    - bottomSection: 底部控制区（含重置按钮和切换摄像头按钮）
 //
 //  ## UI Sections（界面分区）
 //
 //  ### topSection
 //  顶部控制栏（TopControlBar）
+//  - 返回按钮
 //  - 用户引导提示
 //  - 调试开关
-//  - 重置按钮
 //  - 设置菜单（切换摄像头、自动拍照等）
 //
 //  ### debugPanel
@@ -57,7 +57,7 @@
 //  - zoomRing: 变焦环（条件显示）
 //  - captureButton: 主拍照按钮
 //  - 辅助按钮：
-//    - 相册按钮
+//    - 重置按钮
 //    - 切换摄像头按钮
 //
 //  ## 手势处理
@@ -85,7 +85,7 @@
 //  - clampedZoomFactor(for:): 限制变焦倍率在有效范围
 //
 //  ## 生命周期
-//  - onAppear: 
+//  - onAppear:
 //    - 调用 viewModel.onAppear() 启动服务
 //    - 设置拍照触发回调
 //  - onDisappear:
@@ -116,17 +116,17 @@ struct CaptureView: View {
 	@State private var captureFlashOpacity: Double = 0.0
 	@State private var cameraFlipRotation: Double = 0.0
 	@Environment(\.dismiss) private var dismiss
-	
+
 	var body: some View {
 		GeometryReader { geo in
 			let safeInsets = geo.safeAreaInsets
-			
+
 			ZStack {
 				// 黑色背景
 				Color.black
 					.ignoresSafeArea()
 					.zIndex(0)
-				
+
 				// 相机预览
 				CameraPreviewSection(
 					session: viewModel.session,
@@ -153,7 +153,7 @@ struct CaptureView: View {
 				.ignoresSafeArea()
 				.zIndex(0)
 				.gesture(pinchZoomGesture)
-				
+
 				// 拍照闪光效果
 				if captureFlashOpacity > 0 {
 					Color.white
@@ -162,11 +162,11 @@ struct CaptureView: View {
 						.zIndex(0.5)
 						.allowsHitTesting(false)
 				}
-				
+
 				// UI 层
 				VStack(spacing: 0) {
 					topSection
-					
+
 					if showDebugInfo {
 						debugPanel
 							.transition(.asymmetric(
@@ -174,9 +174,9 @@ struct CaptureView: View {
 								removal: .move(edge: .top).combined(with: .opacity)
 							))
 					}
-					
+
 					Spacer()
-					
+
 					bottomSection(bottomInset: max(safeInsets.bottom, 16))
 						.padding(.bottom, safeInsets.bottom > 0 ? 0 : 16)
 				}
@@ -194,49 +194,37 @@ struct CaptureView: View {
 			viewModel.onDisappear()
 		}
 	}
-	
-	// MARK: - UI Sections
-	
-	private var topSection: some View {
-		HStack(spacing: 12) {
-			Button {
-				dismiss()
-			} label: {
-				Image(systemName: "chevron.left")
-					.font(.system(size: 16, weight: .semibold))
-					.foregroundColor(.white)
-					.padding(10)
-					.background(Circle().fill(Color.black.opacity(0.4)))
-			}
 
-			TopControlBar(
-				userGuidanceText: viewModel.userGuidanceText,
-				showDebugInfo: showDebugInfo,
-				isAutoCaptureEnabled: viewModel.isAutoCaptureEnabled,
-				captureDelay: viewModel.captureDelay,
-				onReset: {
-					viewModel.resetDetectionState()
-				},
-				onToggleDebug: {
-					withAnimation(DesignSystem.Animation.smooth) {
-						showDebugInfo.toggle()
-					}
-				},
-				onToggleCamera: {
-					triggerCameraFlipAnimation()
-					viewModel.toggleCameraPosition()
-				},
-				onToggleAutoCapture: {
-					viewModel.toggleAutoCapture()
-				},
-				onSetCaptureDelay: { delay in
-					viewModel.setCaptureDelay(delay)
+	// MARK: - UI Sections
+
+	private var topSection: some View {
+		TopControlBar(
+			userGuidanceText: viewModel.userGuidanceText,
+			showDebugInfo: showDebugInfo,
+			isAutoCaptureEnabled: viewModel.isAutoCaptureEnabled,
+			captureDelay: viewModel.captureDelay,
+			onBack: {
+				dismiss()
+			},
+			onToggleDebug: {
+				withAnimation(DesignSystem.Animation.smooth) {
+					showDebugInfo.toggle()
 				}
-			)
-			.padding(.horizontal, 20)
-		}
+			},
+			onToggleCamera: {
+				triggerCameraFlipAnimation()
+				viewModel.toggleCameraPosition()
+			},
+			onToggleAutoCapture: {
+				viewModel.toggleAutoCapture()
+			},
+			onSetCaptureDelay: { delay in
+				viewModel.setCaptureDelay(delay)
+			}
+		)
+		.padding(.horizontal, 20)
 	}
-	
+
 	private var debugPanel: some View {
 		DebugPanel(
 			debugMessage: viewModel.debugMessage,
@@ -255,12 +243,12 @@ struct CaptureView: View {
 			}
 		)
 	}
-	
+
 	private func bottomSection(bottomInset: CGFloat) -> some View {
 		VStack(spacing: 18) {
 			// 变焦环和流水线开关
 			zoomRingWithPipelineToggle
-			
+
 			// 拍照按钮
 			HStack(spacing: 25) {
 				CaptureButton(isScaled: captureAnimationScale > 1.5) {
@@ -268,33 +256,36 @@ struct CaptureView: View {
 					viewModel.capturePhoto()
 				}
 			}
-			
+
 			// 辅助按钮
 			HStack {
+				SecondaryCircleButton(systemName: "arrow.clockwise") {
+					HapticManager.shared.medium()
+					viewModel.resetDetectionState()
+				}
 				Spacer()
 				SecondaryCircleButton(systemName: "arrow.triangle.2.circlepath.camera") {
 					HapticManager.shared.light()
 					triggerCameraFlipAnimation()
 					viewModel.toggleCameraPosition()
 				}
-				Spacer()
 			}
 		}
 		.padding(.horizontal, 24)
 	}
-	
+
 	@ViewBuilder
 	private var zoomRingWithPipelineToggle: some View {
 		let span = viewModel.zoomRange.upperBound - viewModel.zoomRange.lowerBound
 		let showZoomRing = span > CGFloat(0.05) || viewModel.zoomPresets.count > 1
-		
+
 		if showZoomRing {
 			// 变焦环 + 流水线开关
 			HStack(alignment: .center, spacing: 0) {
 				// 左侧占位
 				Spacer()
 					.frame(width: 50)
-				
+
 				// 中间变焦环
 				Spacer()
 				ZoomRingView(
@@ -314,7 +305,7 @@ struct CaptureView: View {
 					)
 				)
 				Spacer()
-				
+
 				// 右侧流水线开关按钮
 				pipelineToggleButton
 					.frame(width: 50)
@@ -330,7 +321,7 @@ struct CaptureView: View {
 			.frame(height: 50)
 		}
 	}
-	
+
 	@ViewBuilder
 	private var zoomRing: some View {
 		let span = viewModel.zoomRange.upperBound - viewModel.zoomRange.lowerBound
@@ -355,7 +346,7 @@ struct CaptureView: View {
 			.transition(.opacity.combined(with: .move(edge: .bottom)))
 		}
 	}
-	
+
 	private var pipelineToggleButton: some View {
 		Button {
 			HapticManager.shared.light()
@@ -365,20 +356,20 @@ struct CaptureView: View {
 				Circle()
 					.fill(viewModel.isCompositionPipelineEnabled ? Color.white.opacity(0.4) : Color.black.opacity(0.4))
 					.frame(width: 44, height: 44)
-				
-				Image(systemName: viewModel.isCompositionPipelineEnabled 
-					? "wand.and.stars" 
+
+				Image(systemName: viewModel.isCompositionPipelineEnabled
+					? "wand.and.stars"
 					: "wand.and.stars.inverse")
 					.font(.system(size: 20, weight: .medium))
-					.foregroundColor(viewModel.isCompositionPipelineEnabled 
+					.foregroundColor(viewModel.isCompositionPipelineEnabled
 						? .green
 						: .white)
 			}
 		}
 	}
-	
+
 	// MARK: - Gestures
-	
+
 	private var pinchZoomGesture: some Gesture {
 		MagnificationGesture()
 			.onChanged { scale in
@@ -395,13 +386,13 @@ struct CaptureView: View {
 				pinchActive = false
 			}
 	}
-	
+
 	private func clampedZoomFactor(for factor: CGFloat) -> CGFloat {
 		min(max(factor, viewModel.zoomRange.lowerBound), viewModel.zoomRange.upperBound)
 	}
-	
+
 	// MARK: - Animations
-	
+
 	private func triggerCaptureAnimation() {
 		// 闪光效果
 		withAnimation(.easeOut(duration: 0.1)) {
@@ -410,19 +401,19 @@ struct CaptureView: View {
 		withAnimation(.easeIn(duration: 0.2).delay(0.1)) {
 			captureFlashOpacity = 0.0
 		}
-		
+
 		// 缩放效果
 		withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
 			captureAnimationScale = 2.0
 		}
-		
+
 		DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
 			withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
 				captureAnimationScale = 1.0
 			}
 		}
 	}
-	
+
 	private func triggerCameraFlipAnimation() {
 		// 3D 翻转动画
 		withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {

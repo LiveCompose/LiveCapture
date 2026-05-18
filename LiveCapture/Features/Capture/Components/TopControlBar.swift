@@ -6,7 +6,7 @@
 //
 //  ## 文件作用
 //  提供拍摄界面顶部的控制栏UI
-//  集成用户引导、重置按钮和设置菜单
+//  集成返回按钮、用户引导和设置菜单
 //  处理各种控制操作的回调
 //
 //  ## 主要组件
@@ -20,7 +20,7 @@
 //  - captureDelay: Double - 拍照延迟时间（秒）
 //
 //  ## 回调闭包
-//  - onReset: () -> Void - 重置检测状态
+//  - onBack: () -> Void - 返回上一页
 //  - onToggleDebug: () -> Void - 切换调试面板
 //  - onToggleCamera: () -> Void - 切换摄像头
 //  - onToggleAutoCapture: () -> Void - 切换自动拍照
@@ -28,7 +28,7 @@
 //
 //  ## UI 布局
 //  左侧:
-//  - TopCircleButton: 重置按钮（arrow.clockwise 图标）
+//  - TopCircleButton: 返回按钮（chevron.left 图标）
 //
 //  中间:
 //  - UserGuidanceView: 用户引导提示（条件显示）
@@ -47,7 +47,7 @@
 //  ## 交互反馈
 //  - 使用 HapticManager 提供触觉反馈
 //  - 不同操作使用不同反馈强度
-//    - medium: 重置操作
+//    - light: 返回操作
 //    - selection: 菜单选择
 //    - light/soft: 辅助操作
 //
@@ -67,30 +67,30 @@ struct TopControlBar: View {
 	let showDebugInfo: Bool
 	let isAutoCaptureEnabled: Bool
 	let captureDelay: Double
-	
-	let onReset: () -> Void
+
+	let onBack: () -> Void
 	let onToggleDebug: () -> Void
 	let onToggleCamera: () -> Void
 	let onToggleAutoCapture: () -> Void
 	let onSetCaptureDelay: (Double) -> Void
-	
+
 	var body: some View {
 		HStack {
-			// 左侧重置按钮
-			TopCircleButton(systemName: "arrow.clockwise") {
-				HapticManager.shared.medium()
-				onReset()
+			// 左侧返回按钮
+			TopCircleButton(systemName: "chevron.left") {
+				HapticManager.shared.light()
+				onBack()
 			}
-			
+
 			Spacer()
-			
+
 			// 中间显示用户引导
 			if !userGuidanceText.isEmpty {
 				UserGuidanceView(guidanceText: userGuidanceText)
 			}
-			
+
 			Spacer()
-			
+
 			// 右侧菜单按钮
 			Menu {
 				// 调试模式
@@ -98,12 +98,12 @@ struct TopControlBar: View {
 					HapticManager.shared.selection()
 					onToggleDebug()
 				} label: {
-					Label(showDebugInfo ? "隐藏调试信息" : "显示调试信息", 
+					Label(showDebugInfo ? "隐藏调试信息" : "显示调试信息",
 						  systemImage: showDebugInfo ? "eye.slash" : "eye")
 				}
-				
+
 				Divider()
-				
+
 				// 相机设置部分
 				Menu {
 					Button {
@@ -112,18 +112,18 @@ struct TopControlBar: View {
 					} label: {
 						Label("切换镜头", systemImage: "arrow.triangle.2.circlepath.camera")
 					}
-					
+
 					Button {
 						// 预留：镜头锁定功能
 					} label: {
 						Label("锁定焦点（待实现）", systemImage: "lock.circle")
 					}
 					.disabled(true)
-					
+
 				} label: {
 					Label("相机设置", systemImage: "camera")
 				}
-				
+
 				// 拍摄设置
 				Menu {
 					Button {
@@ -135,7 +135,7 @@ struct TopControlBar: View {
 							systemImage: isAutoCaptureEnabled ? "bolt.fill" : "bolt.slash"
 						)
 					}
-					
+
 					// 延迟设置
 					Menu {
 						ForEach([0.5, 1.0, 1.5, 2.0], id: \.self) { delay in
@@ -154,13 +154,13 @@ struct TopControlBar: View {
 					} label: {
 						Label("拍照延迟: \(String(format: "%.1f", captureDelay))秒", systemImage: "timer")
 					}
-					
+
 				} label: {
 					Label("拍摄设置", systemImage: "camera.aperture")
 				}
-				
+
 				Divider()
-				
+
 				// 帮助和关于
 				Button {
 					HapticManager.shared.light()
@@ -168,14 +168,14 @@ struct TopControlBar: View {
 				} label: {
 					Label("使用帮助", systemImage: "questionmark.circle")
 				}
-				
+
 				Button {
 					HapticManager.shared.light()
 					// 预留：关于页面
 				} label: {
 					Label("关于", systemImage: "info.circle")
 				}
-				
+
 			} label: {
 				ZStack {
 					Circle()
@@ -185,7 +185,7 @@ struct TopControlBar: View {
 								.fill(Color.white.opacity(0.3))
 						)
 						.frame(width: 38, height: 38)
-					
+
 					Image(systemName: "ellipsis")
 						.font(.system(size: 18, weight: .semibold))
 						.foregroundStyle(.white)
