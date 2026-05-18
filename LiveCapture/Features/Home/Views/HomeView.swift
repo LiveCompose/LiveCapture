@@ -17,6 +17,10 @@ struct HomeView: View {
                         .padding(.horizontal, 20)
                         .padding(.bottom, 20)
 
+                    detectionModePicker
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
+
                     if !viewModel.records.isEmpty {
                         Divider()
                             .background(DesignSystem.Colors.backgroundSecondary)
@@ -35,7 +39,7 @@ struct HomeView: View {
             .background(Color.black)
             .navigationBarHidden(true)
             .fullScreenCover(isPresented: $viewModel.showCapture) {
-                CaptureView()
+                CaptureView(detectionMode: viewModel.detectionMode)
             }
             .navigationDestination(item: $selectedPhotoIndex) { index in
                 PhotoBrowserView(
@@ -69,6 +73,22 @@ struct HomeView: View {
                         .foregroundColor(DesignSystem.Colors.textTertiary)
                 }
             }
+        }
+    }
+
+    // MARK: - Detection Mode Picker
+
+    private var detectionModePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("构图引擎")
+                .font(DesignSystem.Typography.caption1)
+                .foregroundColor(DesignSystem.Colors.textTertiary)
+            Picker("构图引擎", selection: $viewModel.detectionMode) {
+                ForEach(DetectionMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
         }
     }
 
@@ -130,17 +150,6 @@ struct HomeView: View {
 
     @ViewBuilder
     private func contextMenu(for record: PhotoRecord) -> some View {
-        Button {
-            viewModel.toggleShared(record.id)
-        } label: {
-            Label(
-                record.isShared ? "从社区移除" : "分享到社区",
-                systemImage: record.isShared ? "square.and.arrow.up.slash" : "square.and.arrow.up"
-            )
-        }
-
-        Divider()
-
         Button(role: .destructive) {
             viewModel.deleteRecord(record.id)
         } label: {

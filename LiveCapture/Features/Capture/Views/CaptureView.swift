@@ -108,8 +108,12 @@ import AVFoundation
 
 /// 主拍摄界面
 struct CaptureView: View {
-	@StateObject private var viewModel = CaptureViewModel()
+	@StateObject private var viewModel: CaptureViewModel
 	@State private var showDebugInfo = false
+
+	init(detectionMode: DetectionMode = .vision) {
+		_viewModel = StateObject(wrappedValue: CaptureViewModel(detectionMode: detectionMode))
+	}
 	@State private var pinchInitialFactor: CGFloat = 1.0
 	@State private var pinchActive = false
 	@State private var captureAnimationScale: CGFloat = 1.0

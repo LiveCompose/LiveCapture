@@ -125,19 +125,20 @@ extension CameraManager {
         }
     }
 
-    /// 启动捕获会话，如果已运行则忽略。
+    /// 启动捕获会话，如果已运行或 shouldBeRunning 为 false 则忽略。
     func startSession() {
-        sessionQueue.async {
-            guard !self.session.isRunning else { return }
+        sessionQueue.async { [weak self] in
+            guard let self, self.shouldBeRunning, !self.session.isRunning else { return }
             self.session.startRunning()
             DispatchQueue.main.async { self.isSessionRunning = true }
         }
     }
 
-    /// 停止捕获会话，并回写运行状态。
+    /// 停止捕获会话。先同步清除 shouldBeRunning 再异步停止，避免竞态。
     func stopSession() {
-        sessionQueue.async {
-            guard self.session.isRunning else { return }
+        shouldBeRunning = false
+        sessionQueue.async { [weak self] in
+            guard let self, self.session.isRunning else { return }
             self.session.stopRunning()
             DispatchQueue.main.async { self.isSessionRunning = false }
         }

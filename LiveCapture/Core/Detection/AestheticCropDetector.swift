@@ -386,4 +386,8 @@ final class AestheticCropDetector {
 	}
 }
 
+// MARK: - CropDetectionStrategy
+
+extension AestheticCropDetector: CropDetectionStrategy {}
+
 #endif

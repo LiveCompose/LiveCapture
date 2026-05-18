@@ -178,9 +178,9 @@ final class CaptureViewModel: ObservableObject {
 	
 	private(set) var camera = CameraManager()
 	private let motion = MotionStabilityMonitor()
-	private let aestheticDetector = AestheticCropDetector()
+	private let detector: CropDetectionStrategy
 	private let boxCenterManager = BoxCenterManager()
-	
+
 	// MARK: - Published State
 	
 	@Published private(set) var cropRectInView: CGRect?
@@ -244,18 +244,22 @@ final class CaptureViewModel: ObservableObject {
 	
 	// MARK: - Lifecycle
 	
-	init() {
+	init(detectionMode: DetectionMode = .vision) {
+		switch detectionMode {
+		case .vision:
+			detector = AestheticCropDetector()
+		case .student, .teacher:
+			detector = CoreMLCropDetector(mode: detectionMode)
+		}
+
 		zoomState = camera.zoomState
 		zoomPresets = camera.zoomPresets
 		zoomRange = camera.zoomRange
-		
-		// 初始化前置摄像头状态
+
 		boxCenterManager.setFrontCamera(camera.currentPosition == .front)
-		
+
 		bindMotion()
 		bindCamera()
-		
-		// 🔥 初始化引导文字（使用统一机制）
 		refreshUserGuidance()
 	}
 	
@@ -266,6 +270,7 @@ final class CaptureViewModel: ObservableObject {
 	// MARK: - Public API
 	
 	func onAppear() {
+		camera.shouldBeRunning = true
 		camera.checkAndConfigure { [weak self] result in
 			guard let self else { return }
 			switch result {
@@ -534,7 +539,7 @@ final class CaptureViewModel: ObservableObject {
 			? compositionRectInView.width / compositionRectInView.height
 			: 3.0 / 4.0
 		
-		aestheticDetector.detectBestCrop(
+		detector.detectBestCrop(
 			in: pixel,
 			orientation: orientation,
 			targetAspectRatio: aspectRatio

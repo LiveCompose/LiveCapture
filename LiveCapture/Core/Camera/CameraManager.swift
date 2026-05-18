@@ -89,7 +89,10 @@ final class CameraManager: NSObject, ObservableObject {
 
     /// 视频帧到达时的回调，运行在 `videoOutputQueue` 上。
     var onSampleBuffer: ((CMSampleBuffer) -> Void)?
-	    var onPhotoDataReady: ((Data) -> Void)?
+    var onPhotoDataReady: ((Data) -> Void)?
+
+    /// 防止快速进入/退出时的竞态：stopSession 同步设为 false，startSession 在队列上检查此标志。
+    var shouldBeRunning = false
 
     /// 最新的像素缓冲，仅用于调试预览。
     var lastPixelBuffer: CVPixelBuffer? = nil

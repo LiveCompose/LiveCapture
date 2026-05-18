@@ -84,16 +84,6 @@ final class PhotoStorageService {
         }
     }
 
-    func toggleShared(for id: UUID) {
-        storageQueue.async { [weak self] in
-            guard let self else { return }
-            if let index = self.records.firstIndex(where: { $0.id == id }) {
-                self.records[index].isShared.toggle()
-                self.persist()
-            }
-        }
-    }
-
     func thumbnail(for id: UUID) -> UIImage? {
         let thumbURL = thumbnailsDir.appendingPathComponent(PhotoRecord.thumbnailFilename(for: id))
         return UIImage(contentsOfFile: thumbURL.path)

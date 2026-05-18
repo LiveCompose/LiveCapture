@@ -5,6 +5,7 @@ import UIKit
 final class HomeViewModel: ObservableObject {
     @Published private(set) var records: [PhotoRecord] = []
     @Published var showCapture = false
+    @Published var detectionMode: DetectionMode = .vision
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
@@ -19,10 +20,6 @@ final class HomeViewModel: ObservableObject {
 
     func deleteRecord(_ id: UUID) {
         PhotoStorageService.shared.deleteRecord(id)
-    }
-
-    func toggleShared(_ id: UUID) {
-        PhotoStorageService.shared.toggleShared(for: id)
     }
 
     func thumbnail(for id: UUID) -> UIImage? {
