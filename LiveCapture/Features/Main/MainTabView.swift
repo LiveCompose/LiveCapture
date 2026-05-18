@@ -22,23 +22,17 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
+            LiveComposeView()
+                .tabItem {
+                    Label("构妙", systemImage: "house.fill")
+                }
+                .tag(Tab.livecompose)
+
             GalleryView()
                 .tabItem {
                     Label("图库", systemImage: selectedTab == .gallery ? "photo.on.rectangle.fill" : "photo.on.rectangle")
                 }
                 .tag(Tab.gallery)
-
-            LiveComposeView()
-                .tabItem {
-                    Label("构妙", systemImage: "camera.viewfinder")
-                }
-                .tag(Tab.livecompose)
-
-            SettingsView()
-                .tabItem {
-                    Label("设置", systemImage: selectedTab == .settings ? "gearshape.fill" : "gearshape")
-                }
-                .tag(Tab.settings)
 
             Color.clear
                 .tabItem {
@@ -47,6 +41,12 @@ struct MainTabView: View {
                     Text("拍摄")
                 }
                 .tag(Tab.camera)
+
+            SettingsView()
+                .tabItem {
+                    Label("设置", systemImage: selectedTab == .settings ? "gearshape.fill" : "gearshape")
+                }
+                .tag(Tab.settings)
         }
         .tint(DesignSystem.Colors.primary)
         .preferredColorScheme(resolvedScheme)

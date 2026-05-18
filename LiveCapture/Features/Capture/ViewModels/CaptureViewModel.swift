@@ -246,7 +246,7 @@ final class CaptureViewModel: ObservableObject {
 	
 	private let detectionMode: DetectionMode
 
-	init(detectionMode: DetectionMode = .vision) {
+	init(detectionMode: DetectionMode = .fast) {
 		self.detectionMode = detectionMode
 		switch detectionMode {
 		case .vision:

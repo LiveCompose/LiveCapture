@@ -2,13 +2,7 @@
   "images" : [
     {
       "filename" : "logo-light-LiveCompose.png",
-      "idiom" : "universal",
-      "appearances" : [
-        {
-          "appearance" : "luminosity",
-          "value" : "light"
-        }
-      ]
+      "idiom" : "universal"
     }
   ],
   "info" : {

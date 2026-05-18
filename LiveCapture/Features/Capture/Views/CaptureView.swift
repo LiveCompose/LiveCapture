@@ -111,7 +111,7 @@ struct CaptureView: View {
 	@StateObject private var viewModel: CaptureViewModel
 	@State private var showDebugInfo = false
 
-	init(detectionMode: DetectionMode = .vision, isAutoCaptureEnabled: Bool = true, captureDelay: Double = 1.0) {
+	init(detectionMode: DetectionMode = .fast, isAutoCaptureEnabled: Bool = true, captureDelay: Double = 1.0) {
 		let vm = CaptureViewModel(detectionMode: detectionMode)
 		vm.isAutoCaptureEnabled = isAutoCaptureEnabled
 		vm.captureDelay = captureDelay
