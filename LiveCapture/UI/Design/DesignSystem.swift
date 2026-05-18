@@ -134,15 +134,25 @@ enum DesignSystem {
         static let error = Color(red: 1.0, green: 0.23, blue: 0.19) // 错误红
         static let info = Color(red: 0.35, green: 0.78, blue: 0.98) // 信息蓝
         
-        // 中性色
-        static let textPrimary = Color.white
-        static let textSecondary = Color.white.opacity(0.8)
-        static let textTertiary = Color.white.opacity(0.6)
-        
-        // 背景色
-        static let backgroundPrimary = Color.black
-        static let backgroundSecondary = Color.white.opacity(0.1)
-        static let backgroundTertiary = Color.white.opacity(0.05)
+        // 中性色（自适应深色/浅色模式）
+        static let textPrimary = Color(uiColor: UIColor { trait in
+            trait.userInterfaceStyle == .dark ? .white : .black
+        })
+        static let textSecondary = Color(uiColor: UIColor { trait in
+            trait.userInterfaceStyle == .dark ? UIColor.white.withAlphaComponent(0.8) : UIColor.black.withAlphaComponent(0.65)
+        })
+        static let textTertiary = Color(uiColor: UIColor { trait in
+            trait.userInterfaceStyle == .dark ? UIColor.white.withAlphaComponent(0.6) : UIColor.black.withAlphaComponent(0.45)
+        })
+
+        // 背景色（自适应深色/浅色模式）
+        static let backgroundPrimary = Color(uiColor: .systemBackground)
+        static let backgroundSecondary = Color(uiColor: UIColor { trait in
+            trait.userInterfaceStyle == .dark ? UIColor.white.withAlphaComponent(0.1) : UIColor.black.withAlphaComponent(0.06)
+        })
+        static let backgroundTertiary = Color(uiColor: UIColor { trait in
+            trait.userInterfaceStyle == .dark ? UIColor.white.withAlphaComponent(0.05) : UIColor.black.withAlphaComponent(0.03)
+        })
         
         // 渐变色
         static let primaryGradient = LinearGradient(

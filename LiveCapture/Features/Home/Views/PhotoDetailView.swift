@@ -23,7 +23,7 @@ struct PhotoBrowserView: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Color(uiColor: .systemBackground).ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // 顶部栏
@@ -151,7 +151,7 @@ struct PhotoBrowserView: View {
                     Spacer()
                 }
             }
-            .background(Color.black)
+            .background(Color(uiColor: .systemBackground))
             .navigationTitle("导出预览")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

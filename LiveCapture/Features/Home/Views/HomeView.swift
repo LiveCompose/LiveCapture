@@ -8,18 +8,16 @@ struct GalleryView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-
+            ScrollView {
                 VStack(spacing: 0) {
                     // 顶部栏
                     HStack {
                         Text("图库")
                             .font(DesignSystem.Typography.largeTitle)
                             .foregroundColor(DesignSystem.Colors.textPrimary)
-                        Spacer()
 
                         if isSelectionMode {
+                            Spacer()
                             Button {
                                 viewModel.deleteRecords(Array(selectedIDs))
                                 selectedIDs.removeAll()
@@ -29,7 +27,7 @@ struct GalleryView: View {
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundColor(selectedIDs.isEmpty ? DesignSystem.Colors.textTertiary : .red)
                                     .padding(12)
-                                    .background(Circle().fill(Color.black.opacity(0.5)))
+                                    .background(Circle().fill(.ultraThinMaterial))
                             }
                             .disabled(selectedIDs.isEmpty)
 
@@ -42,10 +40,13 @@ struct GalleryView: View {
                                     .foregroundColor(DesignSystem.Colors.textPrimary)
                                     .padding(.leading, 8)
                             }
-                        } else if !viewModel.records.isEmpty {
-                            Text("\(viewModel.records.count) 张照片")
-                                .font(DesignSystem.Typography.caption1)
-                                .foregroundColor(DesignSystem.Colors.textTertiary)
+                        } else {
+                            Spacer()
+                            if !viewModel.records.isEmpty {
+                                Text("\(viewModel.records.count) 张照片")
+                                    .font(DesignSystem.Typography.caption1)
+                                    .foregroundColor(DesignSystem.Colors.textTertiary)
+                            }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -66,6 +67,7 @@ struct GalleryView: View {
                     }
                 }
             }
+            .background(Color(uiColor: .systemBackground))
             .navigationBarHidden(true)
             .navigationDestination(item: $selectedPhotoIndex) { index in
                 PhotoBrowserView(

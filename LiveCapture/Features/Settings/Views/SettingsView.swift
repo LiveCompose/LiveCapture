@@ -21,7 +21,7 @@ struct SettingsView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 40)
             }
-            .background(Color.black)
+            .background(Color(uiColor: .systemBackground))
             .navigationBarHidden(true)
         }
     }
@@ -62,7 +62,7 @@ struct SettingsView: View {
                     }
                     Spacer()
                     Picker("主题", selection: $colorScheme) {
-                        Text("跟随系统").tag("system")
+                        Text("系统").tag("system")
                         Text("浅色").tag("light")
                         Text("深色").tag("dark")
                     }
