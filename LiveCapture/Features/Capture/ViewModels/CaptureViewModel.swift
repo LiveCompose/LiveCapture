@@ -244,7 +244,10 @@ final class CaptureViewModel: ObservableObject {
 	
 	// MARK: - Lifecycle
 	
+	private let detectionMode: DetectionMode
+
 	init(detectionMode: DetectionMode = .vision) {
+		self.detectionMode = detectionMode
 		switch detectionMode {
 		case .vision:
 			detector = AestheticCropDetector()
@@ -497,8 +500,9 @@ final class CaptureViewModel: ObservableObject {
 			guard let self else { return }
 			self.handleSampleBuffer(sample)
 		}
-		camera.onPhotoDataReady = { data in
-			PhotoStorageService.shared.savePhoto(data: data)
+		camera.onPhotoDataReady = { [weak self] data in
+			guard let self else { return }
+			PhotoStorageService.shared.savePhoto(data: data, detectionMethod: self.detectionMode.displayName)
 		}
 	}
 	

@@ -86,12 +86,8 @@ struct PhotoBrowserView: View {
 
                 // 底部信息
                 if let record = records[safe: currentIndex] {
-                    VStack(spacing: 4) {
-                        Text(formattedDate(record.creationDate))
-                            .font(DesignSystem.Typography.subheadline)
-                            .foregroundColor(DesignSystem.Colors.textTertiary)
-                    }
-                    .padding(.bottom, 16)
+                    metadataSection(record)
+                        .padding(.bottom, 16)
                 }
             }
         }
@@ -106,6 +102,40 @@ struct PhotoBrowserView: View {
             }
         }
     }
+
+    // MARK: - Metadata Section
+
+    private func metadataSection(_ record: PhotoRecord) -> some View {
+        VStack(spacing: 6) {
+            Text(formattedDate(record.creationDate))
+                .font(DesignSystem.Typography.subheadline)
+                .foregroundColor(DesignSystem.Colors.textTertiary)
+
+            HStack(spacing: 16) {
+                MetadataBadge(label: record.detectionMethod ?? "未知引擎")
+
+                if let iso = record.iso {
+                    MetadataBadge(label: "ISO \(Int(iso))")
+                }
+
+                if let shutter = record.shutterSpeed {
+                    MetadataBadge(label: shutterDisplay(shutter))
+                }
+
+                if let aperture = record.aperture {
+                    MetadataBadge(label: "f/\(String(format: "%.1f", aperture))")
+                }
+            }
+
+            if let w = record.imageWidth, let h = record.imageHeight {
+                Text("\(w) × \(h)")
+                    .font(DesignSystem.Typography.caption2)
+                    .foregroundColor(DesignSystem.Colors.textTertiary.opacity(0.5))
+            }
+        }
+    }
+
+    // MARK: - Helpers
 
     private func loadPhoto(for record: PhotoRecord) {
         DispatchQueue.global(qos: .userInitiated).async {
@@ -124,16 +154,66 @@ struct PhotoBrowserView: View {
         return formatter.string(from: date)
     }
 
+    private func shutterDisplay(_ speed: Double) -> String {
+        if speed >= 1 {
+            return "\(Int(speed))s"
+        } else {
+            return "1/\(Int(1.0 / speed))s"
+        }
+    }
+
     private func generateAndShare() {
-        guard let record = records[safe: currentIndex],
-              let photo = loadedPhotos[record.id] else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            guard let card = ShareCardGenerator.generate(photo: photo) else { return }
-            DispatchQueue.main.async {
-                shareImage = card
-                showShareSheet = true
+        // 立即显示 sheet 以提供反馈
+        showShareSheet = true
+
+        guard let record = records[safe: currentIndex] else { return }
+
+        // 如果照片尚未加载，等待加载完成
+        if let photo = loadedPhotos[record.id] {
+            generateCard(from: photo)
+        } else {
+            // 照片未加载，主动加载
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                if let photo = photoProvider(record.id) {
+                    DispatchQueue.main.async {
+                        self.loadedPhotos[record.id] = photo
+                        self.generateCard(from: photo)
+                    }
+                }
             }
         }
+    }
+
+    private func generateCard(from photo: UIImage) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let card = ShareCardGenerator.generate(photo: photo) else {
+                DispatchQueue.main.async {
+                    self.showShareSheet = false
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                self.shareImage = card
+            }
+        }
+    }
+}
+
+// MARK: - Metadata Badge
+
+private struct MetadataBadge: View {
+    let label: String
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundColor(DesignSystem.Colors.textTertiary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(DesignSystem.Colors.backgroundSecondary)
+            )
     }
 }
 

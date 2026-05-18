@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "logo-dark-LiveCompose.png",
+      "filename" : "logo-light-LiveCompose.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -13,7 +13,7 @@
           "value" : "dark"
         }
       ],
-      "filename" : "logo-light-LiveCompose.png",
+      "filename" : "logo-dark-LiveCompose.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"

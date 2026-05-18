@@ -5,12 +5,34 @@ struct PhotoRecord: Identifiable, Codable, Equatable {
     let creationDate: Date
     var localIdentifier: String?
 
+    // 检测方法
+    var detectionMethod: String?
+
+    // EXIF 元数据
+    var iso: Float?
+    var shutterSpeed: Double?
+    var aperture: Double?
+    var imageWidth: Int?
+    var imageHeight: Int?
+
     init(id: UUID = UUID(),
          creationDate: Date = Date(),
-         localIdentifier: String? = nil) {
+         localIdentifier: String? = nil,
+         detectionMethod: String? = nil,
+         iso: Float? = nil,
+         shutterSpeed: Double? = nil,
+         aperture: Double? = nil,
+         imageWidth: Int? = nil,
+         imageHeight: Int? = nil) {
         self.id = id
         self.creationDate = creationDate
         self.localIdentifier = localIdentifier
+        self.detectionMethod = detectionMethod
+        self.iso = iso
+        self.shutterSpeed = shutterSpeed
+        self.aperture = aperture
+        self.imageWidth = imageWidth
+        self.imageHeight = imageHeight
     }
 }
 

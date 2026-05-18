@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import UIKit
+import ImageIO
 
 final class PhotoStorageService {
     static let shared = PhotoStorageService()
@@ -46,10 +47,25 @@ final class PhotoStorageService {
         return records
     }
 
-    func savePhoto(data: Data) {
+    func savePhoto(data: Data, detectionMethod: String? = nil) {
         let id = UUID()
         let photoURL = photosDir.appendingPathComponent(PhotoRecord.photoFilename(for: id))
         let thumbURL = thumbnailsDir.appendingPathComponent(PhotoRecord.thumbnailFilename(for: id))
+
+        // 提取 EXIF 元数据
+        var exif: (iso: Float?, shutter: Double?, aperture: Double?, width: Int?, height: Int?) = (nil, nil, nil, nil, nil)
+        if let source = CGImageSourceCreateWithData(data as CFData, nil),
+           let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] {
+            if let exifDict = props[kCGImagePropertyExifDictionary as String] as? [String: Any] {
+                if let isoValues = exifDict[kCGImagePropertyExifISOSpeedRatings as String] as? [Float] {
+                    exif.iso = isoValues.first
+                }
+                exif.shutter = exifDict[kCGImagePropertyExifExposureTime as String] as? Double
+                exif.aperture = exifDict[kCGImagePropertyExifFNumber as String] as? Double
+            }
+            exif.width = props[kCGImagePropertyPixelWidth as String] as? Int
+            exif.height = props[kCGImagePropertyPixelHeight as String] as? Int
+        }
 
         storageQueue.async { [weak self] in
             guard let self else { return }
@@ -66,7 +82,10 @@ final class PhotoStorageService {
                 try? thumbData.write(to: thumbURL, options: .atomic)
             }
 
-            let record = PhotoRecord(id: id, creationDate: Date())
+            let record = PhotoRecord(id: id, creationDate: Date(),
+                                     detectionMethod: detectionMethod,
+                                     iso: exif.iso, shutterSpeed: exif.shutter, aperture: exif.aperture,
+                                     imageWidth: exif.width, imageHeight: exif.height)
             self.records.insert(record, at: 0)
             self.persist()
         }
