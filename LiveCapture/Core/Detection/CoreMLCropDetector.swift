@@ -26,9 +26,9 @@ final class CoreMLCropDetector {
     private func loadBBoxModel() throws -> MLModel {
         let config = MLModelConfiguration()
         switch mode {
-        case .student:
+        case .fast:
             return try AdacropStudentBBox(configuration: config).model
-        case .teacher:
+        case .pro:
             return try AdacropTeacherBBox(configuration: config).model
         case .vision:
             throw ModelLoadError.modelNotFound
@@ -38,9 +38,9 @@ final class CoreMLCropDetector {
     private func loadActorModel() throws -> MLModel {
         let config = MLModelConfiguration()
         switch mode {
-        case .student:
+        case .fast:
             return try AdacropStudentActor(configuration: config).model
-        case .teacher:
+        case .pro:
             return try AdacropTeacherActor(configuration: config).model
         case .vision:
             throw ModelLoadError.modelNotFound
@@ -205,7 +205,7 @@ final class CoreMLCropDetector {
                 // 调整到目标宽高比
                 let finalRect = self.fitToAspectRatio(rect, target: targetAspectRatio)
 
-                let detectionType = "Adacrop\(self.mode == .student ? "Student" : "Teacher")"
+                let detectionType = "Adacrop \(self.mode == .fast ? "Fast" : "Pro")"
                 completion(AestheticCrop(rect: finalRect, confidence: actionProbs[maxIndex], detectionType: detectionType))
 
             } catch {

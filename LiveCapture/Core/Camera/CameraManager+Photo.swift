@@ -1,6 +1,5 @@
 import Foundation
 import AVFoundation
-import Photos
 import CoreImage
 import ImageIO
 
@@ -22,21 +21,6 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
         photoOutput.capturePhoto(with: settings, delegate: self)
     }
 
-    private func savePhotoDataToLibrary(_ data: Data) {
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else {
-                DispatchQueue.main.async { self.lastPhotoSaved = false }
-                return
-            }
-            PHPhotoLibrary.shared().performChanges({
-                let creationRequest: PHAssetCreationRequest = PHAssetCreationRequest.forAsset()
-                creationRequest.addResource(with: .photo, data: data, options: nil)
-            }) { success, _ in
-                DispatchQueue.main.async { self.lastPhotoSaved = success }
-            }
-        }
-    }
-
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error: any Error = error {
             print("Photo processing error: \(error)")
@@ -48,11 +32,7 @@ extension CameraManager: AVCapturePhotoCaptureDelegate {
             return
         }
         onPhotoDataReady?(data)
-        if let processed = processPhotoData(photo: photo, originalData: data) {
-            savePhotoDataToLibrary(processed)
-        } else {
-            savePhotoDataToLibrary(data)
-        }
+        DispatchQueue.main.async { self.lastPhotoSaved = true }
     }
 
     func processPhotoData(photo: AVCapturePhoto, originalData: Data) -> Data? {

@@ -1,4 +1,5 @@
 import SwiftUI
+import Photos
 
 struct PhotoBrowserView: View {
     let records: [PhotoRecord]
@@ -7,8 +8,10 @@ struct PhotoBrowserView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var currentIndex: Int
-    @State private var showShareSheet = false
-    @State private var shareImage: UIImage?
+    @State private var showExportSheet = false
+    @State private var cardImage: UIImage?
+    @State private var isGenerating = false
+    @State private var saveSuccess = false
     @State private var loadedPhotos: [UUID: UIImage] = [:]
 
     init(records: [PhotoRecord], initialIndex: Int, photoProvider: @escaping (UUID) -> UIImage?) {
@@ -49,14 +52,20 @@ struct PhotoBrowserView: View {
                     Spacer()
 
                     Button {
-                        generateAndShare()
+                        generateExportCard()
                     } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .padding(12)
-                            .background(Circle().fill(Color.black.opacity(0.5)))
+                        if isGenerating {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        } else {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Circle().fill(Color.black.opacity(0.5)))
+                        }
                     }
+                    .disabled(isGenerating)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -92,12 +101,65 @@ struct PhotoBrowserView: View {
             }
         }
         .navigationBarHidden(true)
-        .sheet(isPresented: $showShareSheet) {
-            Group {
-                if let shareImage {
-                    ShareSheet(items: [shareImage])
+        .sheet(isPresented: $showExportSheet) {
+            exportPreviewView
+        }
+    }
+
+    // MARK: - Export Preview
+
+    private var exportPreviewView: some View {
+        NavigationStack {
+            VStack {
+                if let cardImage {
+                    VStack(spacing: 0) {
+                        Image(uiImage: cardImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .padding(16)
+
+                        // 操作按钮
+                        VStack(spacing: 12) {
+                            Button {
+                                saveToPhotos(cardImage)
+                            } label: {
+                                HStack {
+                                    Image(systemName: saveSuccess ? "checkmark.circle.fill" : "square.and.arrow.down")
+                                    Text(saveSuccess ? "已保存" : "保存到相册")
+                                }
+                                .font(DesignSystem.Typography.headline)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(saveSuccess ? DesignSystem.Colors.success : DesignSystem.Colors.primary)
+                                )
+                            }
+                            .disabled(saveSuccess)
+                            .padding(.horizontal, 16)
+
+                            Text("图片将保存到系统相册")
+                                .font(DesignSystem.Typography.caption2)
+                                .foregroundColor(DesignSystem.Colors.textTertiary)
+                        }
+                        .padding(.bottom, 24)
+                    }
                 } else {
+                    Spacer()
                     ProgressView("正在生成分享卡片...")
+                    Spacer()
+                }
+            }
+            .background(Color.black)
+            .navigationTitle("导出预览")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("关闭") {
+                        showExportSheet = false
+                        saveSuccess = false
+                    }
                 }
             }
         }
@@ -155,45 +217,69 @@ struct PhotoBrowserView: View {
     }
 
     private func shutterDisplay(_ speed: Double) -> String {
-        if speed >= 1 {
-            return "\(Int(speed))s"
-        } else {
-            return "1/\(Int(1.0 / speed))s"
-        }
+        if speed >= 1 { return "\(Int(speed))s" }
+        else { return "1/\(Int(1.0 / speed))s" }
     }
 
-    private func generateAndShare() {
-        // 立即显示 sheet 以提供反馈
-        showShareSheet = true
+    // MARK: - Export
 
+    private func generateExportCard() {
         guard let record = records[safe: currentIndex] else { return }
+        isGenerating = true
+        showExportSheet = true
 
-        // 如果照片尚未加载，等待加载完成
-        if let photo = loadedPhotos[record.id] {
-            generateCard(from: photo)
-        } else {
-            // 照片未加载，主动加载
-            DispatchQueue.global(qos: .userInitiated).async { [self] in
-                if let photo = photoProvider(record.id) {
-                    DispatchQueue.main.async {
-                        self.loadedPhotos[record.id] = photo
-                        self.generateCard(from: photo)
+        let loadAndGenerate = {
+            if let photo = loadedPhotos[record.id] {
+                generateCard(from: photo, record: record)
+            } else {
+                // 尚未加载，先加载
+                DispatchQueue.global(qos: .userInitiated).async {
+                    if let photo = photoProvider(record.id) {
+                        DispatchQueue.main.async {
+                            loadedPhotos[record.id] = photo
+                            generateCard(from: photo, record: record)
+                        }
                     }
                 }
             }
         }
+        loadAndGenerate()
     }
 
-    private func generateCard(from photo: UIImage) {
+    private func generateCard(from photo: UIImage, record: PhotoRecord) {
         DispatchQueue.global(qos: .userInitiated).async {
-            guard let card = ShareCardGenerator.generate(photo: photo) else {
-                DispatchQueue.main.async {
-                    self.showShareSheet = false
-                }
-                return
-            }
+            let card = ShareCardGenerator.generate(
+                photo: photo,
+                date: record.creationDate,
+                detectionMethod: record.detectionMethod,
+                iso: record.iso,
+                shutterSpeed: record.shutterSpeed,
+                aperture: record.aperture,
+                imageWidth: record.imageWidth,
+                imageHeight: record.imageHeight
+            )
             DispatchQueue.main.async {
-                self.shareImage = card
+                self.isGenerating = false
+                self.cardImage = card
+            }
+        }
+    }
+
+    private func saveToPhotos(_ image: UIImage) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else { return }
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: image.pngData()!, options: nil)
+            }) { success, _ in
+                DispatchQueue.main.async {
+                    if success {
+                        saveSuccess = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            showExportSheet = false
+                            saveSuccess = false
+                        }
+                    }
+                }
             }
         }
     }
@@ -221,14 +307,4 @@ private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
-}
-
-struct ShareSheet: UIViewControllerRepresentable {
-    let items: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

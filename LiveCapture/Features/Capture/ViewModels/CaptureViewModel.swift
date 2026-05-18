@@ -251,7 +251,7 @@ final class CaptureViewModel: ObservableObject {
 		switch detectionMode {
 		case .vision:
 			detector = AestheticCropDetector()
-		case .student, .teacher:
+		case .fast, .pro:
 			detector = CoreMLCropDetector(mode: detectionMode)
 		}
 

@@ -1,29 +1,59 @@
 import SwiftUI
 
-struct HomeView: View {
+struct GalleryView: View {
     @StateObject private var viewModel = HomeViewModel()
     @State private var selectedPhotoIndex: Int?
+    @State private var isSelectionMode = false
+    @State private var selectedIDs: Set<UUID> = []
 
     var body: some View {
         NavigationStack {
-            ScrollView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
                 VStack(spacing: 0) {
-                    headerSection
-                        .padding(.horizontal, 20)
-                        .padding(.top, 8)
-                        .padding(.bottom, 16)
+                    // 顶部栏
+                    HStack {
+                        Text("图库")
+                            .font(DesignSystem.Typography.largeTitle)
+                            .foregroundColor(DesignSystem.Colors.textPrimary)
+                        Spacer()
 
-                    captureButton
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 20)
+                        if isSelectionMode {
+                            Button {
+                                viewModel.deleteRecords(Array(selectedIDs))
+                                selectedIDs.removeAll()
+                                isSelectionMode = false
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(selectedIDs.isEmpty ? DesignSystem.Colors.textTertiary : .red)
+                                    .padding(12)
+                                    .background(Circle().fill(Color.black.opacity(0.5)))
+                            }
+                            .disabled(selectedIDs.isEmpty)
 
-                    detectionModePicker
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 16)
+                            Button {
+                                isSelectionMode = false
+                                selectedIDs.removeAll()
+                            } label: {
+                                Text("取消")
+                                    .font(DesignSystem.Typography.subheadline)
+                                    .foregroundColor(DesignSystem.Colors.textPrimary)
+                                    .padding(.leading, 8)
+                            }
+                        } else if !viewModel.records.isEmpty {
+                            Text("\(viewModel.records.count) 张照片")
+                                .font(DesignSystem.Typography.caption1)
+                                .foregroundColor(DesignSystem.Colors.textTertiary)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
 
-                    if !viewModel.records.isEmpty {
-                        Divider()
-                            .background(DesignSystem.Colors.backgroundSecondary)
+                    if !isSelectionMode && !viewModel.records.isEmpty {
+                        guidanceBanner
                             .padding(.horizontal, 20)
                             .padding(.bottom, 12)
                     }
@@ -36,11 +66,7 @@ struct HomeView: View {
                     }
                 }
             }
-            .background(Color.black)
             .navigationBarHidden(true)
-            .fullScreenCover(isPresented: $viewModel.showCapture) {
-                CaptureView(detectionMode: viewModel.detectionMode)
-            }
             .navigationDestination(item: $selectedPhotoIndex) { index in
                 PhotoBrowserView(
                     records: viewModel.records,
@@ -53,74 +79,24 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Guidance
 
-    private var headerSection: some View {
-        VStack(spacing: 4) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("LiveCapture")
-                        .font(DesignSystem.Typography.largeTitle)
-                        .foregroundColor(DesignSystem.Colors.textPrimary)
-                    Text("智能构图助手")
-                        .font(DesignSystem.Typography.subheadline)
-                        .foregroundColor(DesignSystem.Colors.textTertiary)
-                }
-                Spacer()
-                if !viewModel.records.isEmpty {
-                    Text("\(viewModel.records.count) 张照片")
-                        .font(DesignSystem.Typography.caption1)
-                        .foregroundColor(DesignSystem.Colors.textTertiary)
-                }
-            }
-        }
-    }
-
-    // MARK: - Detection Mode Picker
-
-    private var detectionModePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("构图引擎")
+    private var guidanceBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 12))
+                .foregroundColor(DesignSystem.Colors.primary)
+            Text("点击照片浏览 · 长按多选删除 · 进入照片可导出精美卡片")
                 .font(DesignSystem.Typography.caption1)
                 .foregroundColor(DesignSystem.Colors.textTertiary)
-            Picker("构图引擎", selection: $viewModel.detectionMode) {
-                ForEach(DetectionMode.allCases) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
+            Spacer()
         }
-    }
-
-    // MARK: - Capture Button
-
-    private var captureButton: some View {
-        Button {
-            viewModel.showCapture = true
-        } label: {
-            VStack(spacing: 10) {
-                ZStack {
-                    Circle()
-                        .fill(DesignSystem.Colors.primary.opacity(0.15))
-                        .frame(width: 72, height: 72)
-                    Image(systemName: "camera.fill")
-                        .font(.system(size: 30))
-                        .foregroundColor(DesignSystem.Colors.primary)
-                }
-                Text("开始拍摄")
-                    .font(DesignSystem.Typography.headline)
-                    .foregroundColor(DesignSystem.Colors.textPrimary)
-                Text("使用智能构图，捕捉完美瞬间")
-                    .font(DesignSystem.Typography.caption1)
-                    .foregroundColor(DesignSystem.Colors.textTertiary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 28)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(DesignSystem.Colors.backgroundSecondary)
-            )
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(DesignSystem.Colors.backgroundSecondary)
+        )
     }
 
     // MARK: - Photo Grid
@@ -132,17 +108,52 @@ struct HomeView: View {
         ) {
             ForEach(Array(viewModel.records.enumerated()), id: \.element.id) { index, record in
                 Button {
-                    selectedPhotoIndex = index
+                    if isSelectionMode {
+                        toggleSelection(record.id)
+                    } else {
+                        selectedPhotoIndex = index
+                    }
                 } label: {
-                    PhotoCard(
-                        record: record,
-                        thumbnailProvider: { [weak viewModel] id in
-                            viewModel?.thumbnail(for: id)
+                    ZStack(alignment: .topTrailing) {
+                        PhotoCard(
+                            record: record,
+                            thumbnailProvider: { [weak viewModel] id in
+                                viewModel?.thumbnail(for: id)
+                            }
+                        )
+
+                        if isSelectionMode {
+                            RoundedRectangle(cornerRadius: 0)
+                                .fill(Color.black.opacity(0.4))
+
+                            Image(systemName: selectedIDs.contains(record.id) ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 22))
+                                .foregroundColor(selectedIDs.contains(record.id) ? DesignSystem.Colors.primary : .white.opacity(0.7))
+                                .padding(6)
                         }
-                    )
+                    }
                 }
                 .contextMenu { contextMenu(for: record) }
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                        if !isSelectionMode {
+                            isSelectionMode = true
+                            selectedIDs = [record.id]
+                        }
+                    }
+                )
             }
+        }
+    }
+
+    private func toggleSelection(_ id: UUID) {
+        if selectedIDs.contains(id) {
+            selectedIDs.remove(id)
+            if selectedIDs.isEmpty {
+                isSelectionMode = false
+            }
+        } else {
+            selectedIDs.insert(id)
         }
     }
 
@@ -162,20 +173,18 @@ struct HomeView: View {
     private var emptyStateView: some View {
         VStack(spacing: DesignSystem.Spacing.large) {
             Spacer().frame(height: 60)
-            Image(systemName: "camera.viewfinder")
+            Image(systemName: "photo.on.rectangle")
                 .font(.system(size: 56))
                 .foregroundColor(DesignSystem.Colors.textTertiary)
             Text("暂无照片")
                 .font(DesignSystem.Typography.title3)
                 .foregroundColor(DesignSystem.Colors.textSecondary)
-            Text("点击上方按钮开始拍摄")
+            Text("使用下方拍摄按钮开始创作")
                 .font(DesignSystem.Typography.subheadline)
                 .foregroundColor(DesignSystem.Colors.textTertiary)
         }
     }
 }
-
-// MARK: - Identifiable Int wrapper for navigationDestination
 
 extension Int: @retroactive Identifiable {
     public var id: Int { self }

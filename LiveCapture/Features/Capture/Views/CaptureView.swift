@@ -111,8 +111,11 @@ struct CaptureView: View {
 	@StateObject private var viewModel: CaptureViewModel
 	@State private var showDebugInfo = false
 
-	init(detectionMode: DetectionMode = .vision) {
-		_viewModel = StateObject(wrappedValue: CaptureViewModel(detectionMode: detectionMode))
+	init(detectionMode: DetectionMode = .vision, isAutoCaptureEnabled: Bool = true, captureDelay: Double = 1.0) {
+		let vm = CaptureViewModel(detectionMode: detectionMode)
+		vm.isAutoCaptureEnabled = isAutoCaptureEnabled
+		vm.captureDelay = captureDelay
+		_viewModel = StateObject(wrappedValue: vm)
 	}
 	@State private var pinchInitialFactor: CGFloat = 1.0
 	@State private var pinchActive = false

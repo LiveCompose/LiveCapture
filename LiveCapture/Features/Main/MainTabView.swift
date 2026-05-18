@@ -1,38 +1,73 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @State private var selectedTab: Tab = .home
+    @AppStorage("detectionMode") private var detectionMode: DetectionMode = .fast
+    @AppStorage("autoCaptureEnabled") private var autoCaptureEnabled = true
+    @AppStorage("captureDelay") private var captureDelay: Double = 1.0
+    @AppStorage("colorScheme") private var colorScheme: String = "system"
+    @State private var selectedTab: Tab = .livecompose
+    @State private var showCapture = false
 
     enum Tab: String, Hashable {
-        case home
-        case help
-        case about
+        case gallery, livecompose, settings, camera
+    }
+
+    private var resolvedScheme: ColorScheme? {
+        switch colorScheme {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil
+        }
     }
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            HomeView()
+            GalleryView()
                 .tabItem {
-                    Label("主页", systemImage: selectedTab == .home ? "house.fill" : "house")
+                    Label("图库", systemImage: selectedTab == .gallery ? "photo.on.rectangle.fill" : "photo.on.rectangle")
                 }
-                .tag(Tab.home)
+                .tag(Tab.gallery)
 
-            HelpView()
+            LiveComposeView()
                 .tabItem {
-                    Label("帮助", systemImage: selectedTab == .help ? "questionmark.circle.fill" : "questionmark.circle")
+                    Label("构妙", systemImage: "camera.viewfinder")
                 }
-                .tag(Tab.help)
+                .tag(Tab.livecompose)
 
-            AboutView()
+            SettingsView()
                 .tabItem {
-                    Label("关于", systemImage: selectedTab == .about ? "info.circle.fill" : "info.circle")
+                    Label("设置", systemImage: selectedTab == .settings ? "gearshape.fill" : "gearshape")
                 }
-                .tag(Tab.about)
+                .tag(Tab.settings)
+
+            Color.clear
+                .tabItem {
+                    Image(systemName: "camera.fill")
+                        .environment(\.symbolVariants, .none)
+                    Text("拍摄")
+                }
+                .tag(Tab.camera)
         }
         .tint(DesignSystem.Colors.primary)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(resolvedScheme)
         .onAppear {
             _ = PhotoStorageService.shared.loadRecords()
+        }
+        .onChange(of: selectedTab) { _, newTab in
+            if newTab == .camera {
+                showCapture = true
+                DispatchQueue.main.async {
+                    selectedTab = .livecompose
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showCapture) {
+            CaptureView(
+                detectionMode: detectionMode,
+                isAutoCaptureEnabled: autoCaptureEnabled,
+                captureDelay: captureDelay
+            )
+            .preferredColorScheme(.dark)
         }
     }
 }
