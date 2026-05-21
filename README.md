@@ -100,10 +100,10 @@ LiveCapture/
 
 ```
 MainTabView (TabView, 4 Tabs)
-├── Tab 1 "构妙"  → LiveComposeView        # Branding / about page
-├── Tab 2 "图库"  → GalleryView            # Photo grid → PhotoBrowserView → Share card sheet
-├── Tab 3 "拍摄"  → fullScreenCover → CaptureView  # Capture screen (full-screen cover)
-└── Tab 4 "设置"  → SettingsView           # Appearance / capture / engine settings
+├── Tab 1 "LiveCompose"  → LiveComposeView        # Branding / about page
+├── Tab 2 "Gallery"      → GalleryView            # Photo grid → PhotoBrowserView → Share card sheet
+├── Tab 3 "Capture"      → fullScreenCover → CaptureView  # Capture screen (full-screen cover)
+└── Tab 4 "Settings"     → SettingsView           # Appearance / capture / engine settings
 ```
 
 - The capture tab uses `.fullScreenCover`; after selection it immediately returns to Tab 1.
