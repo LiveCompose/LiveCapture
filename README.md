@@ -249,17 +249,6 @@ PhotoStorageService.savePhoto() ── 写文件 + EXIF     │
 | 数据持久化 | FileManager + JSON (Codable) |
 | 无第三方依赖 | — |
 
-
-## 应用部署
-
-### 从 AppStore 下载
-
-构妙 LiveCapture 已上线 AppStore，您可以通过下方的链接导向 AppStore 下载，应用仅支持 iOS 平台。
-
-[构妙 in AppStore](https://apps.apple.com/cn/app/%E6%9E%84%E5%A6%99/id6754213088)
-
-### 自 XCode 构建
-
 ## 关联项目
 
 | 平台 | 地址 | 说明 |
