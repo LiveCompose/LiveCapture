@@ -1,8 +1,8 @@
-# Goumiao LiveCapture
+# 构妙 LiveCapture
 
 English | [简体中文](README_CN.md)
 
-Goumiao LiveCapture is an on-device AI composition assistant app powered by reinforcement learning. We analyze the live preview in real time, combine gyroscope tracking with aesthetic scoring, and actively guide users to move the phone for the best framing so every shutter captures the best moment.
+构妙 LiveCapture is an on-device AI composition assistant app powered by reinforcement learning. We analyze the live preview in real time, combine gyroscope tracking with aesthetic scoring, and actively guide users to move the phone for the best framing so every shutter captures the best moment.
 
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-LiveCompose-yellow)](https://huggingface.co/LiveCompose)
 [![GitHub](https://img.shields.io/badge/GitHub-LiveCompose-black?logo=github)](https://github.com/LiveCompose)
@@ -12,7 +12,7 @@ Goumiao LiveCapture is an on-device AI composition assistant app powered by rein
 ![Platform](https://img.shields.io/badge/Platform-iOS-blueviolet)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
-> Now available on the App Store: [Goumiao LiveCapture](https://apps.apple.com/cn/app/%E6%9E%84%E5%A6%99/id6754213088)
+> Now available on the App Store: [构妙 LiveCapture](https://apps.apple.com/cn/app/%E6%9E%84%E5%A6%99/id6754213088)
 
 ## Project Architecture
 
@@ -258,4 +258,4 @@ Model specs:
 |------|------|------|
 | GitHub Org | [github.com/LiveCompose](https://github.com/LiveCompose) | All open-source code |
 | Hugging Face | [huggingface.co/LiveCompose](https://huggingface.co/LiveCompose) | Model weights and datasets |
-| App Store | [Goumiao LiveCapture](https://apps.apple.com/cn/app/%E6%9E%84%E5%A6%99/id6754213088) | iOS app |
+| App Store | [构妙 LiveCapture](https://apps.apple.com/cn/app/%E6%9E%84%E5%A6%99/id6754213088) | iOS app |
