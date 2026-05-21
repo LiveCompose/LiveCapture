@@ -1,6 +1,6 @@
 # Goumiao LiveCapture
 
-[English](README.md) | [简体中文](README_CN.md)
+English | [简体中文](README_CN.md)
 
 Goumiao LiveCapture is an on-device AI composition assistant app powered by reinforcement learning. We analyze the live preview in real time, combine gyroscope tracking with aesthetic scoring, and actively guide users to move the phone for the best framing so every shutter captures the best moment.
 
@@ -106,7 +106,7 @@ MainTabView (TabView, 4 Tabs)
 └── Tab 4 "Settings"     → SettingsView           # Appearance / capture / engine settings
 ```
 
-- The Chinese UI labels are "构妙", "图库", "拍摄", and "设置".
+- The Chinese UI labels are "构妙" (LiveCompose), "图库" (Gallery), "拍摄" (Capture), and "设置" (Settings).
 - The capture tab uses `.fullScreenCover`; after selection it immediately returns to Tab 1.
 - State persistence uses `@AppStorage`: `detectionMode`, `autoCaptureEnabled`, `captureDelay`, `colorScheme`.
 

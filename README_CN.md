@@ -1,6 +1,6 @@
 # 构妙 LiveCapture
 
-[English](README.md) | [简体中文](README_CN.md)
+[English](README.md) | 简体中文
 
 构妙 LiveCapture 是一款基于强化学习的 AI 端侧智能构图辅助 APP，我们致力于通过实时分析取景画面，结合陀螺仪追踪与美学评分驱动，主动引导用户移动手机以获得最佳构图，让每一次快门都定格最美的瞬间。
 
