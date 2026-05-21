@@ -106,6 +106,7 @@ MainTabView (TabView, 4 Tab)
 └── Tab 4 "设置"  → SettingsView           # 外观 / 拍摄 / 引擎设置
 ```
 
+- 当前应用 UI 的 Tab 标签为“构妙”(LiveCompose)、“图库”(Gallery)、“拍摄”(Capture) 和 “设置”(Settings)。
 - 拍摄 Tab 使用 `.fullScreenCover` 触发，选择后立即回弹到 Tab 1
 - 状态持久化使用 `@AppStorage`：`detectionMode`、`autoCaptureEnabled`、`captureDelay`、`colorScheme`
 
