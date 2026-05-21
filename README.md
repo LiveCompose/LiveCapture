@@ -106,7 +106,7 @@ MainTabView (TabView, 4 Tabs)
 └── Tab 4 "Settings"     → SettingsView           # Appearance / capture / engine settings
 ```
 
-- The Chinese UI labels are "构妙" (LiveCompose), "图库" (Gallery), "拍摄" (Capture), and "设置" (Settings).
+- The app UI currently uses Chinese tab labels: "构妙" (LiveCompose), "图库" (Gallery), "拍摄" (Capture), and "设置" (Settings).
 - The capture tab uses `.fullScreenCover`; after selection it immediately returns to Tab 1.
 - State persistence uses `@AppStorage`: `detectionMode`, `autoCaptureEnabled`, `captureDelay`, `colorScheme`.
 
